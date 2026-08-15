@@ -70,7 +70,10 @@ def process_payment_split(order_id: int) -> None:
         pay_settings = ensure_payment_settings(db)
         display_total, actual_total = order_display_actual_totals(order)
         split = calculate_split(
-            display_total, actual_total, pay_settings, display_total
+            display_total,
+            actual_total,
+            pay_settings,
+            delivery_charge=float(order.delivery_fee or 0),
         )
 
         order.display_total = split.display_total
@@ -205,8 +208,6 @@ def update_payment_settings(
     _=Depends(get_admin),
 ):
     s = ensure_payment_settings(db)
-    s.delivery_charge = body.delivery_charge
-    s.free_delivery_above = body.free_delivery_above
     s.delivery_boy_per_order_earning = body.delivery_boy_per_order_earning
     s.platform_fee_percent = body.platform_fee_percent
     s.display_price_markup_percent = body.display_price_markup_percent
@@ -224,12 +225,17 @@ def get_public_payment_settings(db: Session = Depends(get_db)):
 def preview_split(
     display_total: float = Query(..., ge=0),
     actual_total: float = Query(..., ge=0),
-    order_total: float = Query(..., ge=0),
+    delivery_charge: float = Query(..., ge=0),
     db: Session = Depends(get_db),
     _=Depends(get_admin),
 ):
     s = ensure_payment_settings(db)
-    result = calculate_split(display_total, actual_total, s, order_total)
+    result = calculate_split(
+        display_total,
+        actual_total,
+        s,
+        delivery_charge=delivery_charge,
+    )
     return SplitPreview(**result.__dict__)
 
 
@@ -251,7 +257,10 @@ def create_razorpay_order(
     pay_settings = ensure_payment_settings(db)
     display_total, actual_total = order_display_actual_totals(order)
     split = calculate_split(
-        display_total, actual_total, pay_settings, display_total
+        display_total,
+        actual_total,
+        pay_settings,
+        delivery_charge=float(order.delivery_fee or 0),
     )
 
     rz_order = create_order(

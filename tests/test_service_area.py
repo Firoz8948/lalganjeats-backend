@@ -1,13 +1,22 @@
 from app.modules.restaurants.service_area import (
     customer_within_service_area,
+    delivery_charge_for_distance,
     max_active_zone_radius_km,
 )
 
 
 class _Zone:
-    def __init__(self, radius_km, is_active=True):
+    def __init__(
+        self,
+        radius_km,
+        is_active=True,
+        rate=0,
+        pricing_type="flat",
+    ):
         self.radius_km = radius_km
         self.is_active = is_active
+        self.rate = rate
+        self.pricing_type = pricing_type
 
 
 def test_max_active_zone_radius_uses_largest_active_zone_only():
@@ -52,3 +61,18 @@ def test_missing_coords_or_radius_means_not_in_service_area():
     assert customer_within_service_area(26.16, None, 26.14, 80.9, 6.0) is False
     assert customer_within_service_area(26.16, 80.9, None, 80.9, 6.0) is False
     assert customer_within_service_area(26.16, 80.9, 26.14, 80.9, None) is False
+
+
+def test_distance_uses_first_active_zone_that_contains_customer():
+    zones = [
+        _Zone(2, rate=20),
+        _Zone(4, rate=40),
+    ]
+
+    assert delivery_charge_for_distance(zones, 3) == 40
+
+
+def test_per_km_zone_multiplies_rate_by_actual_distance():
+    zones = [_Zone(4, rate=12, pricing_type="per_km")]
+
+    assert delivery_charge_for_distance(zones, 3) == 36

@@ -20,12 +20,11 @@ def calculate_split(
     display_total: float,
     actual_price_total: float,
     settings: PaymentSettings,
-    order_total_for_free_delivery: float,
+    delivery_charge: float,
 ) -> SplitResult:
-    if order_total_for_free_delivery >= settings.free_delivery_above:
-        delivery_charge = 0.0
-    else:
-        delivery_charge = float(settings.delivery_charge)
+    # Delivery is priced by the tenant's matching distance zone before the
+    # split is calculated. Payment settings no longer define a fixed fee.
+    delivery_charge = round(float(delivery_charge), 2)
 
     platform_fee = round((settings.platform_fee_percent / 100) * display_total, 2)
     customer_pays = round(display_total + delivery_charge, 2)

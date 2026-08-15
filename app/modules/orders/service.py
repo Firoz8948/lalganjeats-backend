@@ -9,11 +9,12 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core import sms
-from app.core.maps import estimate_customer_eta_minutes
+from app.core.maps import estimate_customer_eta_minutes, haversine_km
 from app.modules.orders.models import Order, OrderItem
 from app.modules.orders.schemas import PlaceOrderRequest
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuItemVariant
 from app.modules.restaurants.service import _restaurant_visible_for_customer
+from app.modules.restaurants.service_area import delivery_charge_for_distance
 from app.modules.users.models import Address, User
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.payments.payment_split import calculate_split
@@ -107,8 +108,12 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
             parts.append(addr.pincode)
         addr_text = ", ".join(parts)
         try:
-            lat = float(addr.latitude) if addr.latitude else lat
-            lng = float(addr.longitude) if addr.longitude else lng
+            # The explicitly chosen map/GPS point is authoritative. Saved
+            # address coordinates are only a fallback for older clients.
+            if lat is None and addr.latitude is not None:
+                lat = float(addr.latitude)
+            if lng is None and addr.longitude is not None:
+                lng = float(addr.longitude)
         except (TypeError, ValueError):
             pass
 
@@ -162,8 +167,40 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     display_total = round(display_total, 2)
     actual_total = round(actual_total, 2)
 
+    tenant = restaurant.tenant
+    zone_origin_lat = (
+        float(restaurant.latitude)
+        if restaurant.latitude is not None
+        else float(tenant.center_latitude)
+    )
+    zone_origin_lng = (
+        float(restaurant.longitude)
+        if restaurant.longitude is not None
+        else float(tenant.center_longitude)
+    )
+    zone_distance_km = haversine_km(
+        float(lat),
+        float(lng),
+        zone_origin_lat,
+        zone_origin_lng,
+    )
+    zone_delivery_charge = delivery_charge_for_distance(
+        tenant.zones or [],
+        zone_distance_km,
+    )
+    if zone_delivery_charge is None:
+        raise HTTPException(
+            400,
+            "No active delivery zone covers this location.",
+        )
+
     pay_settings = ensure_payment_settings(db)
-    split = calculate_split(display_total, actual_total, pay_settings, display_total)
+    split = calculate_split(
+        display_total,
+        actual_total,
+        pay_settings,
+        delivery_charge=zone_delivery_charge,
+    )
 
     discount = 0.0
     promo_code = None

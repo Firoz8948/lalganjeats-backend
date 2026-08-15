@@ -4,7 +4,11 @@ from sqlalchemy.orm import Session, joinedload
 from decimal import Decimal
 
 from app.core.storage import save_upload
-from app.modules.admin.schemas import AdminMenuItemCreate, AdminMenuVariantCreate
+from app.modules.admin.schemas import (
+    AdminMenuItemCreate,
+    AdminMenuItemUpdate,
+    AdminMenuVariantCreate,
+)
 from app.modules.payments.pricing import calculate_display_price
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.restaurants.models import (
@@ -137,21 +141,13 @@ def _resolve_variant_inputs(
     ]
 
 
-def add_menu_item(
+def _priced_variant_inputs(
     db: Session,
-    restaurant_id: int,
     payload: AdminMenuItemCreate,
-):
-    restaurant = db.query(Restaurant).filter(
-        Restaurant.id == restaurant_id
-    ).first()
-    if not restaurant:
-        raise HTTPException(404, "Restaurant not found")
-
+) -> list[tuple[str, Decimal, Decimal, Decimal | None, int]]:
     payment_settings = ensure_payment_settings(db)
     variant_inputs = _resolve_variant_inputs(payload)
-
-    priced_variants: list[tuple[str, Decimal, Decimal, Decimal | None, int]] = []
+    priced: list[tuple[str, Decimal, Decimal, Decimal | None, int]] = []
     seen_labels: set[str] = set()
     for index, raw in enumerate(variant_inputs):
         label = normalize_variant_label(raw.label)
@@ -178,10 +174,24 @@ def add_menu_item(
                     f"price ₹{display:.2f}."
                 ),
             )
-        priced_variants.append((label, transfer, display, mrp, index))
-
-    if not priced_variants:
+        priced.append((label, transfer, display, mrp, index))
+    if not priced:
         raise HTTPException(400, "At least one variant is required")
+    return priced
+
+
+def add_menu_item(
+    db: Session,
+    restaurant_id: int,
+    payload: AdminMenuItemCreate,
+):
+    restaurant = db.query(Restaurant).filter(
+        Restaurant.id == restaurant_id
+    ).first()
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+
+    priced_variants = _priced_variant_inputs(db, payload)
 
     # Parent row mirrors the first (default) variant for backward compatibility.
     default_label, default_transfer, default_display, default_mrp, _ = priced_variants[0]
@@ -264,6 +274,102 @@ def add_menu_item(
         .first()
     )
     return _serialize_menu_item(item, category.name)
+
+
+def update_menu_item(
+    db: Session,
+    restaurant_id: int,
+    item_id: int,
+    payload: AdminMenuItemUpdate,
+):
+    restaurant = db.query(Restaurant).filter(
+        Restaurant.id == restaurant_id
+    ).first()
+    item = (
+        db.query(MenuItem)
+        .options(joinedload(MenuItem.variants))
+        .filter(
+            MenuItem.id == item_id,
+            MenuItem.restaurant_id == restaurant_id,
+            MenuItem.is_deleted == False,
+        )
+        .first()
+    )
+    if not restaurant or not item:
+        raise HTTPException(404, "Item not found")
+
+    subcategory = None
+    if payload.subcategory_id is not None:
+        subcategory = db.query(CatalogSubcategory).filter(
+            CatalogSubcategory.id == payload.subcategory_id,
+            CatalogSubcategory.is_active == True,
+        ).first()
+        if not subcategory:
+            raise HTTPException(400, "Invalid subcategory")
+        if (
+            restaurant.business_category_id is not None
+            and subcategory.category_id != restaurant.business_category_id
+        ):
+            raise HTTPException(
+                400,
+                "Subcategory does not belong to the restaurant category",
+            )
+
+    category_name = subcategory.name if subcategory else payload.category_name
+    category = db.query(MenuCategory).filter(
+        MenuCategory.restaurant_id == restaurant_id,
+        MenuCategory.name == category_name,
+    ).first()
+    if not category:
+        category = MenuCategory(
+            restaurant_id=restaurant_id,
+            name=category_name,
+            is_active=True,
+        )
+        db.add(category)
+        db.flush()
+
+    priced_variants = _priced_variant_inputs(db, payload)
+    _, default_transfer, default_display, default_mrp, _ = priced_variants[0]
+    item.category_id = category.id
+    item.business_subcategory_id = subcategory.id if subcategory else None
+    item.name = payload.name
+    item.description = payload.description
+    item.image_url = payload.image_url
+    item.price = default_display
+    item.actual_price = default_transfer
+    item.original_price = default_mrp
+    item.is_veg = payload.is_veg
+    item.is_bestseller = payload.is_bestseller
+
+    for existing in item.variants or []:
+        existing.is_deleted = True
+        existing.is_available = False
+    for label, transfer, display, mrp, sort_order in priced_variants:
+        db.add(
+            MenuItemVariant(
+                menu_item_id=item.id,
+                label=label,
+                price=display,
+                actual_price=transfer,
+                original_price=mrp,
+                sort_order=sort_order,
+                is_available=True,
+                is_deleted=False,
+            )
+        )
+
+    db.commit()
+    refreshed = (
+        db.query(MenuItem)
+        .options(
+            joinedload(MenuItem.variants),
+            joinedload(MenuItem.business_subcategory),
+        )
+        .filter(MenuItem.id == item.id)
+        .first()
+    )
+    return _serialize_menu_item(refreshed, category.name)
 
 
 def toggle_menu_item(db: Session, restaurant_id: int, item_id: int):

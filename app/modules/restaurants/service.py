@@ -1,10 +1,12 @@
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
+from app.core.maps import haversine_km
 from app.modules.restaurants.models import CatalogCategory, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
 from app.modules.restaurants.service_area import (
     customer_within_service_area,
+    delivery_charge_for_distance,
     max_active_zone_radius_km,
 )
 from app.modules.superadmin.models import Tenant
@@ -14,9 +16,43 @@ EMOJI_PALETTE = ["🍛", "🥘", "🍔", "🍮", "🥞", "🍗", "☕", "🥗"]
 BG_PALETTE = ["#FFF3EF", "#FFF9EF", "#F0FFF4", "#FFF0F5", "#F0F4FF", "#FFF8EF", "#F5F0FF", "#EFFFF5"]
 
 
-def _to_public(restaurant: Restaurant, index: int = 0) -> dict:
+def _to_public(
+    restaurant: Restaurant,
+    index: int = 0,
+    customer_lat: float | None = None,
+    customer_lng: float | None = None,
+) -> dict:
     lat = getattr(restaurant, "latitude", None)
     lng = getattr(restaurant, "longitude", None)
+    delivery_charge = 0.0
+    tenant = getattr(restaurant, "tenant", None)
+    if (
+        tenant is not None
+        and customer_lat is not None
+        and customer_lng is not None
+        and tenant.center_latitude is not None
+        and tenant.center_longitude is not None
+    ):
+        zone_origin_lat = (
+            float(lat)
+            if lat is not None
+            else float(tenant.center_latitude)
+        )
+        zone_origin_lng = (
+            float(lng)
+            if lng is not None
+            else float(tenant.center_longitude)
+        )
+        zone_distance = haversine_km(
+            customer_lat,
+            customer_lng,
+            zone_origin_lat,
+            zone_origin_lng,
+        )
+        delivery_charge = delivery_charge_for_distance(
+            tenant.zones or [],
+            zone_distance,
+        ) or 0.0
     return RestaurantPublicResponse(
         id=restaurant.id,
         name=restaurant.name,
@@ -29,6 +65,8 @@ def _to_public(restaurant: Restaurant, index: int = 0) -> dict:
         city=restaurant.city or "Lalganj",
         latitude=float(lat) if lat is not None else None,
         longitude=float(lng) if lng is not None else None,
+        delivery_fee=f"₹{delivery_charge:g} delivery",
+        delivery_charge=delivery_charge,
         business_category_id=restaurant.business_category_id,
         business_category=(
             restaurant.business_category.name
@@ -91,7 +129,10 @@ def list_public_restaurants(
         for r in restaurants
         if _restaurant_visible_for_customer(r, customer_lat, customer_lng)
     ]
-    return [_to_public(r, i) for i, r in enumerate(visible)]
+    return [
+        _to_public(r, i, customer_lat, customer_lng)
+        for i, r in enumerate(visible)
+    ]
 
 
 def get_public_restaurant(
@@ -117,7 +158,12 @@ def get_public_restaurant(
             status_code=404,
             detail="Restaurant is outside your delivery area",
         )
-    return _to_public(restaurant, restaurant_id)
+    return _to_public(
+        restaurant,
+        restaurant_id,
+        customer_lat,
+        customer_lng,
+    )
 
 
 def _get_or_create_owner(

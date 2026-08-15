@@ -11,6 +11,7 @@ class RestaurantPublicResponse(BaseModel):
     review_count: int = 0
     delivery_time: str = "30-40 min"
     delivery_fee: str = "Free delivery"
+    delivery_charge: float = 0
     min_order: str = "₹100"
     is_open: bool = True
     offer_text: str | None = None

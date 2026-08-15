@@ -82,7 +82,7 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         display_total,
         actual_total,
         pay_settings,
-        display_total,
+        delivery_charge=float(order.delivery_fee or 0),
     )
 
     order_price = (

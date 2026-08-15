@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_admin
-from app.modules.admin.schemas import AdminMenuItemCreate
+from app.modules.admin.schemas import AdminMenuItemCreate, AdminMenuItemUpdate
 from app.modules.admin.services import restaurants as admin_restaurant_service
 from app.modules.restaurants import service as restaurant_service
 from app.modules.restaurants.models import Restaurant
@@ -121,6 +121,23 @@ def admin_add_menu_item(
     return admin_restaurant_service.add_menu_item(
         db,
         restaurant_id,
+        payload,
+    )
+
+
+@router.put("/restaurants/{restaurant_id}/menu/{item_id}")
+def admin_update_menu_item(
+    restaurant_id: int,
+    item_id: int,
+    payload: AdminMenuItemUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(get_admin),
+):
+    """Admin: replace editable details and pricing for a menu item."""
+    return admin_restaurant_service.update_menu_item(
+        db,
+        restaurant_id,
+        item_id,
         payload,
     )
 

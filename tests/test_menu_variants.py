@@ -17,3 +17,25 @@ def test_variant_label_normalize_keeps_half_full_casing_friendly():
     assert normalize_variant_label("  half ") == "Half"
     assert normalize_variant_label("FULL") == "Full"
     assert normalize_variant_label("Regular") == "Regular"
+
+
+def test_menu_item_update_accepts_replacement_prices_variants_and_image():
+    from app.modules.admin.schemas import AdminMenuItemUpdate
+
+    payload = AdminMenuItemUpdate(
+        name="Paneer Tikka",
+        description="Updated",
+        image_url="https://cdn.example.com/paneer.webp",
+        actual_price=120,
+        category_name="Starters",
+        variants=[
+            {
+                "label": "Half",
+                "actual_price": 80,
+                "original_price": 120,
+            }
+        ],
+    )
+
+    assert payload.image_url.endswith("paneer.webp")
+    assert payload.variants[0].label == "Half"

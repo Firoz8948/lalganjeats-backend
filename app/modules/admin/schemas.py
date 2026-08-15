@@ -44,3 +44,7 @@ class AdminMenuItemCreate(BaseModel):
     # Optional: Half / Full / custom. If empty, one Regular variant is created
     # from actual_price / original_price.
     variants: list[AdminMenuVariantCreate] | None = None
+
+
+class AdminMenuItemUpdate(AdminMenuItemCreate):
+    """Full replacement payload used by the admin menu editor."""

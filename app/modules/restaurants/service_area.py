@@ -21,6 +21,37 @@ def max_active_zone_radius_km(zones: Iterable) -> float | None:
     return max(radii)
 
 
+def delivery_charge_for_distance(
+    zones: Iterable,
+    distance_km: float,
+) -> float | None:
+    """
+    Price delivery using the smallest active ring containing the customer.
+
+    Example: for 2 km and 4 km zones, a 3 km delivery uses the 4 km zone.
+    Flat zones charge their configured rate; per-km zones multiply their rate
+    by the actual distance.
+    """
+    eligible = sorted(
+        (
+            zone
+            for zone in zones
+            if getattr(zone, "is_active", False)
+            and getattr(zone, "radius_km", None) is not None
+            and float(zone.radius_km) >= float(distance_km)
+        ),
+        key=lambda zone: float(zone.radius_km),
+    )
+    if not eligible:
+        return None
+
+    zone = eligible[0]
+    rate = float(getattr(zone, "rate", 0) or 0)
+    if getattr(zone, "pricing_type", "flat") == "per_km":
+        return round(rate * float(distance_km), 2)
+    return round(rate, 2)
+
+
 def customer_within_service_area(
     customer_lat: float | None,
     customer_lng: float | None,
