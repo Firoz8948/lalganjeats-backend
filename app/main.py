@@ -14,6 +14,7 @@ from app.modules.users.models import (
 from app.modules.otp.models import OTP
 from app.modules.restaurants.models import (
     CatalogCategory, CatalogSubcategory, Restaurant, MenuCategory, MenuItem,
+    MenuItemVariant,
 )
 from app.modules.orders.models import Order, OrderItem, DeliveryProfile, DeliveryOffer
 from app.modules.banners.models import HomeBannerSlide

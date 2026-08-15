@@ -145,4 +145,37 @@ class MenuItem(Base):
     business_subcategory = relationship(
         "CatalogSubcategory", back_populates="menu_items"
     )
+    variants       = relationship(
+        "MenuItemVariant",
+        back_populates="menu_item",
+        cascade="all, delete-orphan",
+        order_by="MenuItemVariant.sort_order",
+    )
     order_items    = relationship("OrderItem", back_populates="menu_item")
+
+
+class MenuItemVariant(Base):
+    """Size/portion option for a menu item (Half, Full, etc.)."""
+
+    __tablename__ = "menu_item_variants"
+    __table_args__ = (
+        UniqueConstraint("menu_item_id", "label", name="uq_menu_item_variant_label"),
+    )
+
+    id             = Column(Integer, primary_key=True, index=True)
+    menu_item_id   = Column(
+        Integer, ForeignKey("menu_items.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    label          = Column(String(40), nullable=False)
+    price          = Column(DECIMAL(10, 2), nullable=False)   # display
+    actual_price   = Column(DECIMAL(10, 2), nullable=False)   # seller transfer
+    original_price = Column(DECIMAL(10, 2), nullable=True)    # MRP
+    sort_order     = Column(Integer, default=0)
+    is_available   = Column(Boolean, default=True)
+    is_deleted     = Column(Boolean, default=False)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at     = Column(DateTime(timezone=True), onupdate=func.now())
+
+    menu_item      = relationship("MenuItem", back_populates="variants")
+    order_items    = relationship("OrderItem", back_populates="variant")

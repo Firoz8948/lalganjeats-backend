@@ -1,8 +1,13 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
 from app.modules.restaurants.models import CatalogCategory, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
+from app.modules.restaurants.service_area import (
+    customer_within_service_area,
+    max_active_zone_radius_km,
+)
+from app.modules.superadmin.models import Tenant
 from app.modules.users.models import User
 
 EMOJI_PALETTE = ["🍛", "🥘", "🍔", "🍮", "🥞", "🍗", "☕", "🥗"]
@@ -35,9 +40,45 @@ def _to_public(restaurant: Restaurant, index: int = 0) -> dict:
     ).model_dump()
 
 
-def list_public_restaurants(db: Session) -> list[dict]:
+def _restaurant_visible_for_customer(
+    restaurant: Restaurant,
+    customer_lat: float | None,
+    customer_lng: float | None,
+) -> bool:
+    """Visibility is based on customer → tenant locked centre vs max active zone."""
+    if customer_lat is None or customer_lng is None:
+        return False
+    tenant = getattr(restaurant, "tenant", None)
+    if tenant is None:
+        return False
+    max_radius = max_active_zone_radius_km(getattr(tenant, "zones", []) or [])
+    return customer_within_service_area(
+        customer_lat,
+        customer_lng,
+        float(tenant.center_latitude) if tenant.center_latitude is not None else None,
+        float(tenant.center_longitude) if tenant.center_longitude is not None else None,
+        max_radius,
+    )
+
+
+def list_public_restaurants(
+    db: Session,
+    customer_lat: float | None = None,
+    customer_lng: float | None = None,
+) -> list[dict]:
+    """
+    Public list for home/restaurants pages.
+
+    Requires exact customer lat/lng. Returns only restaurants whose tenant
+    locked centre is within the tenant's maximum active delivery-zone radius.
+    Missing/invalid coordinates → empty list (frontend shows expanding state).
+    """
+    if customer_lat is None or customer_lng is None:
+        return []
+
     restaurants = (
         db.query(Restaurant)
+        .options(joinedload(Restaurant.tenant).joinedload(Tenant.zones))
         .filter(
             Restaurant.is_active == True,
             Restaurant.is_approved == True,
@@ -45,12 +86,23 @@ def list_public_restaurants(db: Session) -> list[dict]:
         .order_by(Restaurant.created_at.desc())
         .all()
     )
-    return [_to_public(r, i) for i, r in enumerate(restaurants)]
+    visible = [
+        r
+        for r in restaurants
+        if _restaurant_visible_for_customer(r, customer_lat, customer_lng)
+    ]
+    return [_to_public(r, i) for i, r in enumerate(visible)]
 
 
-def get_public_restaurant(db: Session, restaurant_id: int) -> dict:
+def get_public_restaurant(
+    db: Session,
+    restaurant_id: int,
+    customer_lat: float | None = None,
+    customer_lng: float | None = None,
+) -> dict:
     restaurant = (
         db.query(Restaurant)
+        .options(joinedload(Restaurant.tenant).joinedload(Tenant.zones))
         .filter(
             Restaurant.id == restaurant_id,
             Restaurant.is_active == True,
@@ -60,6 +112,11 @@ def get_public_restaurant(db: Session, restaurant_id: int) -> dict:
     )
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
+    if not _restaurant_visible_for_customer(restaurant, customer_lat, customer_lng):
+        raise HTTPException(
+            status_code=404,
+            detail="Restaurant is outside your delivery area",
+        )
     return _to_public(restaurant, restaurant_id)
 
 

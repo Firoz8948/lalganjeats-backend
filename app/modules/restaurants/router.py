@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.modules.restaurants import service
@@ -9,15 +9,29 @@ router = APIRouter(prefix="/api/v1/restaurants", tags=["Restaurants"])
 
 
 @router.get("")
-def list_restaurants(db: Session = Depends(get_db)):
-    """Public list — approved & active restaurants for home page."""
-    return service.list_public_restaurants(db)
+def list_restaurants(
+    lat: float | None = Query(None, ge=-90, le=90, description="Customer latitude"),
+    lng: float | None = Query(None, ge=-180, le=180, description="Customer longitude"),
+    db: Session = Depends(get_db),
+):
+    """
+    Public list — approved & active restaurants within the customer's
+    service area (exact lat/lng vs tenant centre + max active zone radius).
+    """
+    return service.list_public_restaurants(db, customer_lat=lat, customer_lng=lng)
 
 
 @router.get("/{restaurant_id}")
-def get_restaurant(restaurant_id: int, db: Session = Depends(get_db)):
+def get_restaurant(
+    restaurant_id: int,
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
+    db: Session = Depends(get_db),
+):
     """Public detail — single restaurant for menu page header."""
-    return service.get_public_restaurant(db, restaurant_id)
+    return service.get_public_restaurant(
+        db, restaurant_id, customer_lat=lat, customer_lng=lng
+    )
 
 
 @router.get("/{restaurant_id}/menu")
@@ -33,6 +47,7 @@ def get_restaurant_menu(restaurant_id: int, db: Session = Depends(get_db)):
 
     items = (
         db.query(MenuItem)
+        .options(joinedload(MenuItem.variants))
         .filter(
             MenuItem.restaurant_id == restaurant_id,
             MenuItem.is_deleted == False,
@@ -40,19 +55,39 @@ def get_restaurant_menu(restaurant_id: int, db: Session = Depends(get_db)):
         .order_by(MenuItem.sort_order, MenuItem.id)
         .all()
     )
-    return [
-        {
-            "id":             item.id,
-            "name":           item.name,
-            "description":    item.description or "",
-            "price":          float(item.price),
-            "original_price": float(item.original_price) if item.original_price else None,
-            "category":       cat_map.get(item.category_id, "Other"),
-            "category_id":    item.category_id,
-            "is_veg":         item.is_veg,
-            "is_bestseller":  item.is_bestseller,
-            "is_available":   item.is_available,
-            "image_url":      item.image_url,
-        }
-        for item in items
-    ]
+    result = []
+    for item in items:
+        variants = [
+            {
+                "id": v.id,
+                "label": v.label,
+                "price": float(v.price),
+                "original_price": float(v.original_price) if v.original_price else None,
+                "is_available": v.is_available,
+            }
+            for v in sorted(
+                (x for x in (item.variants or []) if not x.is_deleted),
+                key=lambda x: (x.sort_order or 0, x.id or 0),
+            )
+        ]
+        available_prices = [v["price"] for v in variants if v["is_available"]]
+        list_price = min(available_prices) if available_prices else float(item.price)
+        result.append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "description": item.description or "",
+                "price": list_price,
+                "original_price": (
+                    float(item.original_price) if item.original_price else None
+                ),
+                "category": cat_map.get(item.category_id, "Other"),
+                "category_id": item.category_id,
+                "is_veg": item.is_veg,
+                "is_bestseller": item.is_bestseller,
+                "is_available": item.is_available,
+                "image_url": item.image_url,
+                "variants": variants,
+            }
+        )
+    return result

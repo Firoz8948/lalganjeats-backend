@@ -84,7 +84,14 @@ class OrderItem(Base):
     id           = Column(Integer, primary_key=True)
     order_id     = Column(Integer, ForeignKey("orders.id"), nullable=False)
     menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=False)
+    variant_id   = Column(
+        Integer,
+        ForeignKey("menu_item_variants.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     name         = Column(String(150), nullable=False)
+    variant_label = Column(String(40), nullable=True)
     price        = Column(DECIMAL(10, 2), nullable=False)
     display_price = Column(DECIMAL(10, 2), nullable=True)
     actual_price  = Column(DECIMAL(10, 2), nullable=True)
@@ -93,6 +100,7 @@ class OrderItem(Base):
 
     order        = relationship("Order", back_populates="items")
     menu_item    = relationship("MenuItem", back_populates="order_items")
+    variant      = relationship("MenuItemVariant", back_populates="order_items")
 
 
 class DeliveryProfile(Base):

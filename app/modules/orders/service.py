@@ -12,10 +12,40 @@ from app.core import sms
 from app.core.maps import estimate_customer_eta_minutes
 from app.modules.orders.models import Order, OrderItem
 from app.modules.orders.schemas import PlaceOrderRequest
-from app.modules.restaurants.models import Restaurant, MenuItem
+from app.modules.restaurants.models import Restaurant, MenuItem, MenuItemVariant
+from app.modules.restaurants.service import _restaurant_visible_for_customer
 from app.modules.users.models import Address, User
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.payments.payment_split import calculate_split
+from sqlalchemy.orm import joinedload
+from app.modules.superadmin.models import Tenant
+
+
+def _resolve_order_variant(db: Session, menu_item: MenuItem, variant_id: int | None):
+    active = (
+        db.query(MenuItemVariant)
+        .filter(
+            MenuItemVariant.menu_item_id == menu_item.id,
+            MenuItemVariant.is_deleted == False,
+            MenuItemVariant.is_available == True,
+        )
+        .order_by(MenuItemVariant.sort_order, MenuItemVariant.id)
+        .all()
+    )
+    if variant_id is not None:
+        match = next((v for v in active if v.id == variant_id), None)
+        if not match:
+            raise HTTPException(400, f"Variant {variant_id} unavailable for item {menu_item.id}")
+        return match
+    if len(active) == 1:
+        return active[0]
+    if len(active) == 0:
+        # Legacy item without variants: synthesize pricing from parent
+        return None
+    raise HTTPException(
+        400,
+        f"Choose a size/variant for {menu_item.name}",
+    )
 
 
 def _next_order_number(db: Session) -> str:
@@ -44,6 +74,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
 
     restaurant = (
         db.query(Restaurant)
+        .options(joinedload(Restaurant.tenant).joinedload(Tenant.zones))
         .filter(
             Restaurant.id == payload.restaurant_id,
             Restaurant.is_active == True,
@@ -83,6 +114,16 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
 
     if not addr_text:
         raise HTTPException(400, "Delivery address is required")
+    if lat is None or lng is None:
+        raise HTTPException(
+            400,
+            "Delivery location coordinates are required to verify service area",
+        )
+    if not _restaurant_visible_for_customer(restaurant, float(lat), float(lng)):
+        raise HTTPException(
+            400,
+            "This restaurant is outside your delivery area. Choose a closer location.",
+        )
 
     display_total = 0.0
     actual_total = 0.0
@@ -100,12 +141,23 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         )
         if not mi:
             raise HTTPException(400, f"Menu item {line.menu_item_id} unavailable")
-        display_price = float(mi.price)
-        actual_price = float(mi.actual_price if mi.actual_price is not None else mi.price)
+        variant = _resolve_order_variant(db, mi, line.variant_id)
+        if variant is not None:
+            display_price = float(variant.price)
+            actual_price = float(variant.actual_price)
+            variant_id = variant.id
+            variant_label = variant.label
+        else:
+            display_price = float(mi.price)
+            actual_price = float(mi.actual_price if mi.actual_price is not None else mi.price)
+            variant_id = None
+            variant_label = None
         sub = round(display_price * line.quantity, 2)
         display_total += sub
         actual_total += round(actual_price * line.quantity, 2)
-        line_rows.append((mi, display_price, actual_price, line.quantity, sub))
+        line_rows.append(
+            (mi, display_price, actual_price, line.quantity, sub, variant_id, variant_label)
+        )
 
     display_total = round(display_total, 2)
     actual_total = round(actual_total, 2)
@@ -169,12 +221,14 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     db.add(order)
     db.flush()
 
-    for mi, d_price, a_price, qty, sub in line_rows:
+    for mi, d_price, a_price, qty, sub, variant_id, variant_label in line_rows:
         db.add(
             OrderItem(
                 order_id=order.id,
                 menu_item_id=mi.id,
+                variant_id=variant_id,
                 name=mi.name,
+                variant_label=variant_label,
                 price=Decimal(str(d_price)),
                 display_price=Decimal(str(d_price)),
                 actual_price=Decimal(str(a_price)),

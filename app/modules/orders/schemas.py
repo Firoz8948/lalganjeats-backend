@@ -6,6 +6,7 @@ from typing import Optional, List
 class PlaceOrderItem(BaseModel):
     menu_item_id: int
     quantity: int = Field(..., ge=1, le=50)
+    variant_id: Optional[int] = None
 
 
 class PlaceOrderRequest(BaseModel):

@@ -249,7 +249,33 @@ ALTER TABLE menu_items
   ADD COLUMN IF NOT EXISTS business_subcategory_id INTEGER REFERENCES catalog_subcategories(id) ON DELETE SET NULL;
 
 -- ================================
+-- MENU ITEM VARIANTS (Half / Full)
+-- Full migration: db_scripts/menu_variants_migration.sql
+-- ================================
+CREATE TABLE IF NOT EXISTS menu_item_variants (
+    id             SERIAL PRIMARY KEY,
+    menu_item_id   INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    label          VARCHAR(40) NOT NULL,
+    price          NUMERIC(10, 2) NOT NULL,
+    actual_price   NUMERIC(10, 2) NOT NULL,
+    original_price NUMERIC(10, 2),
+    sort_order     INTEGER DEFAULT 0,
+    is_available   BOOLEAN DEFAULT TRUE,
+    is_deleted     BOOLEAN DEFAULT FALSE,
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ,
+    CONSTRAINT uq_menu_item_variant_label UNIQUE (menu_item_id, label)
+);
+
+ALTER TABLE order_items
+  ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES menu_item_variants(id) ON DELETE SET NULL;
+
+ALTER TABLE order_items
+  ADD COLUMN IF NOT EXISTS variant_label VARCHAR(40);
+
+-- ================================
 -- SEED: run python -m scripts.seed_data for real hashes
 -- Also run: db_scripts/catalog_migration.sql (Restaurant/Grocery + food subcategories)
+-- Also run: db_scripts/menu_variants_migration.sql
 -- Platform: superadmin / Tenant: admin
 -- ================================
