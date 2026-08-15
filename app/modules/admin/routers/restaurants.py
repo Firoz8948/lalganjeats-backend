@@ -81,7 +81,7 @@ async def upload_restaurant_image(
 ):
     """
     Upload a banner image.
-    purpose: list_banner | menu_banner | home_banner_desktop | home_banner_mobile
+    purpose: list_banner | menu_banner | menu_item | home_banner_desktop | home_banner_mobile
     Local storage now — replace save_upload with S3 in production.
     """
     return await admin_restaurant_service.upload_restaurant_image(

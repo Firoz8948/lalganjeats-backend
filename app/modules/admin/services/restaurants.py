@@ -229,6 +229,7 @@ def add_menu_item(
         ),
         name=payload.name,
         description=payload.description,
+        image_url=payload.image_url,
         price=default_display,
         actual_price=default_transfer,
         original_price=default_mrp,
@@ -310,6 +311,7 @@ async def upload_restaurant_image(
     folder_map = {
         "list_banner": "restaurants/list_banner",
         "menu_banner": "restaurants/menu_banner",
+        "menu_item": "restaurants/menu_items",
         "home_banner_desktop": "home_banners/desktop",
         "home_banner_mobile": "home_banners/mobile",
     }
@@ -317,7 +319,7 @@ async def upload_restaurant_image(
         raise HTTPException(
             status_code=400,
             detail=(
-                "purpose must be 'list_banner', 'menu_banner', "
+                "purpose must be 'list_banner', 'menu_banner', 'menu_item', "
                 "'home_banner_desktop', or 'home_banner_mobile'"
             ),
         )

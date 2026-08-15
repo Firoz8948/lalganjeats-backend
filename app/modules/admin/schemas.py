@@ -32,6 +32,7 @@ class AdminMenuVariantCreate(BaseModel):
 class AdminMenuItemCreate(BaseModel):
     name: str
     description: str | None = None
+    image_url: str | None = None
     # Ignored when supplied: backend derives display price from transfer price.
     price: float | None = Field(default=None, gt=0)
     actual_price: float | None = Field(default=None, gt=0)
