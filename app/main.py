@@ -70,8 +70,8 @@ app.include_router(websocket_router)
 app.include_router(users_router)
 app.include_router(orders_router)
 
-# Serve uploaded images (local dev — use S3 + CDN in production)
-if UPLOAD_ROOT.exists():
+# Serve uploaded images in local mode (Bunny returns full CDN URLs)
+if settings.STORAGE_BACKEND == "local" and UPLOAD_ROOT.exists():
     app.mount("/uploads", StaticFiles(directory=str(UPLOAD_ROOT)), name="uploads")
 
 @app.get("/health")

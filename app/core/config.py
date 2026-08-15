@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:4200"
     FRONTEND_URL: str = "http://localhost:4200"
 
+    # local | bunny
+    STORAGE_BACKEND: str = "local"
+    BUNNY_STORAGE_ZONE: str = ""
+    BUNNY_STORAGE_PASSWORD: str = ""
+    BUNNY_STORAGE_HOST: str = "sg.storage.bunnycdn.com"
+    BUNNY_CDN_URL: str = ""
+
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_WEBHOOK_SECRET: str = ""
