@@ -9,7 +9,9 @@ from app.core.security import hash_password
 # Register models before create_all / queries
 from app.modules.superadmin.models import Tenant, DeliveryZone  # noqa: F401
 from app.modules.users.models import User
-from app.modules.restaurants.models import Restaurant  # noqa: F401
+from app.modules.restaurants.models import (
+    CatalogCategory, CatalogSubcategory, Restaurant,  # noqa: F401
+)
 from app.modules.auth.models import OTP  # noqa: F401
 from app.modules.orders.models import Order, OrderItem, DeliveryProfile  # noqa: F401
 from app.modules.payments.models import (  # noqa: F401
@@ -17,6 +19,7 @@ from app.modules.payments.models import (  # noqa: F401
 )
 from app.modules.banners.models import HomeBannerSlide  # noqa: F401
 from app.modules.promocodes.models import PromoCode, PromoCodeUsage  # noqa: F401
+from app.modules.admin.services.catalog import ensure_default_catalog
 
 Base.metadata.create_all(bind=engine)
 
@@ -151,6 +154,7 @@ def _ensure_tenant_admin(db):
 def seed():
     db = SessionLocal()
     try:
+        ensure_default_catalog(db)
         _ensure_superadmin(db)
         _migrate_legacy_super_admins(db)
         _ensure_tenant_admin(db)

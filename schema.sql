@@ -219,6 +219,37 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(
 ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE SET NULL;
 
 -- ================================
+-- BUSINESS CATALOG (categories + subcategories)
+-- Full seed data: db_scripts/catalog_migration.sql
+-- ================================
+CREATE TABLE IF NOT EXISTS catalog_categories (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL UNIQUE,
+    slug       VARCHAR(100) NOT NULL UNIQUE,
+    sort_order INTEGER DEFAULT 0,
+    is_active  BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS catalog_subcategories (
+    id          SERIAL PRIMARY KEY,
+    category_id INTEGER NOT NULL REFERENCES catalog_categories(id) ON DELETE CASCADE,
+    name        VARCHAR(120) NOT NULL,
+    slug        VARCHAR(120) NOT NULL,
+    sort_order  INTEGER DEFAULT 0,
+    is_active   BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_catalog_subcategory_slug UNIQUE (category_id, slug)
+);
+
+ALTER TABLE restaurants
+  ADD COLUMN IF NOT EXISTS business_category_id INTEGER REFERENCES catalog_categories(id) ON DELETE SET NULL;
+
+ALTER TABLE menu_items
+  ADD COLUMN IF NOT EXISTS business_subcategory_id INTEGER REFERENCES catalog_subcategories(id) ON DELETE SET NULL;
+
+-- ================================
 -- SEED: run python -m scripts.seed_data for real hashes
+-- Also run: db_scripts/catalog_migration.sql (Restaurant/Grocery + food subcategories)
 -- Platform: superadmin / Tenant: admin
 -- ================================

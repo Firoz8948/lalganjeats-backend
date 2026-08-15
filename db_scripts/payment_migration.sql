@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS payment_settings (
   free_delivery_above DOUBLE PRECISION DEFAULT 299.0,
   delivery_boy_per_order_earning DOUBLE PRECISION DEFAULT 25.0,
   platform_fee_percent DOUBLE PRECISION DEFAULT 5.0,
+  display_price_markup_percent DOUBLE PRECISION DEFAULT 30.0,
   updated_at TIMESTAMPTZ
 );
 

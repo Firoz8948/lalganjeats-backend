@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from app.modules.restaurants.models import Restaurant
+from app.modules.restaurants.models import CatalogCategory, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
 from app.modules.users.models import User
 
@@ -24,6 +24,12 @@ def _to_public(restaurant: Restaurant, index: int = 0) -> dict:
         city=restaurant.city or "Lalganj",
         latitude=float(lat) if lat is not None else None,
         longitude=float(lng) if lng is not None else None,
+        business_category_id=restaurant.business_category_id,
+        business_category=(
+            restaurant.business_category.name
+            if restaurant.business_category
+            else None
+        ),
         image_emoji=EMOJI_PALETTE[index % len(EMOJI_PALETTE)],
         image_bg=BG_PALETTE[index % len(BG_PALETTE)],
     ).model_dump()
@@ -92,10 +98,23 @@ def create_restaurant(
     tenant_id: int | None = None,
 ) -> dict:
     owner = _get_or_create_owner(db, payload.owner_phone, payload.owner_name, tenant_id)
+    category_id = payload.business_category_id
+    if category_id is None:
+        default_category = db.query(CatalogCategory).filter(
+            CatalogCategory.slug == "restaurant",
+            CatalogCategory.is_active == True,
+        ).first()
+        category_id = default_category.id if default_category else None
+    elif not db.query(CatalogCategory).filter(
+        CatalogCategory.id == category_id,
+        CatalogCategory.is_active == True,
+    ).first():
+        raise HTTPException(status_code=400, detail="Invalid business category")
 
     restaurant = Restaurant(
         owner_id=owner.id,
         tenant_id=tenant_id,
+        business_category_id=category_id,
         name=payload.name,
         description=payload.description,
         phone=payload.phone,
@@ -135,6 +154,10 @@ def _admin_row(r: Restaurant) -> dict:
         "logo_url": r.logo_url,
         "list_banner_url": getattr(r, "list_banner_url", None),
         "banner_url": getattr(r, "banner_url", None),
+        "business_category_id": r.business_category_id,
+        "business_category": (
+            r.business_category.name if r.business_category else None
+        ),
         "is_open": r.is_open,
         "is_approved": r.is_approved,
         "is_active": r.is_active,
@@ -175,6 +198,13 @@ def update_restaurant(
         else dict(payload)
     )
     owner_name = data.pop("owner_name", None)
+    if "business_category_id" in data:
+        category_id = data["business_category_id"]
+        if category_id is not None and not db.query(CatalogCategory).filter(
+            CatalogCategory.id == category_id,
+            CatalogCategory.is_active == True,
+        ).first():
+            raise HTTPException(status_code=400, detail="Invalid business category")
 
     for key, value in data.items():
         setattr(restaurant, key, value)

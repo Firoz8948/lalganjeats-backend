@@ -10,6 +10,7 @@ class PaymentSettingsBase(BaseModel):
     free_delivery_above: float = Field(..., ge=0)
     delivery_boy_per_order_earning: float = Field(..., ge=0)
     platform_fee_percent: float = Field(..., ge=0, le=100)
+    display_price_markup_percent: float = Field(..., ge=0, le=500)
 
 
 class PaymentSettingsUpdate(PaymentSettingsBase):

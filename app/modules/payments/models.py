@@ -13,6 +13,7 @@ class PaymentSettings(Base):
     free_delivery_above = Column(Float, default=299.0)
     delivery_boy_per_order_earning = Column(Float, default=25.0)
     platform_fee_percent = Column(Float, default=5.0)
+    display_price_markup_percent = Column(Float, default=30.0)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 

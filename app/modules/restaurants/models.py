@@ -1,11 +1,53 @@
 # backend/app/modules/restaurants/models.py
 from sqlalchemy import (
     Column, Integer, String, Boolean,
-    Text, DateTime, DECIMAL, Time, ForeignKey, Numeric
+    Text, DateTime, DECIMAL, Time, ForeignKey, Numeric, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
+
+
+class CatalogCategory(Base):
+    __tablename__ = "catalog_categories"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False, unique=True)
+    slug = Column(String(100), nullable=False, unique=True)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    subcategories = relationship(
+        "CatalogSubcategory",
+        back_populates="category",
+        cascade="all, delete-orphan",
+    )
+    restaurants = relationship("Restaurant", back_populates="business_category")
+
+
+class CatalogSubcategory(Base):
+    __tablename__ = "catalog_subcategories"
+    __table_args__ = (
+        UniqueConstraint("category_id", "slug", name="uq_catalog_subcategory_slug"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    category_id = Column(
+        Integer,
+        ForeignKey("catalog_categories.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(120), nullable=False)
+    slug = Column(String(120), nullable=False)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    category = relationship("CatalogCategory", back_populates="subcategories")
+    menu_items = relationship("MenuItem", back_populates="business_subcategory")
+
 
 class Restaurant(Base):
     __tablename__ = "restaurants"
@@ -15,6 +57,12 @@ class Restaurant(Base):
     tenant_id     = Column(
         Integer, ForeignKey("tenants.id", ondelete="SET NULL"),
         nullable=True, index=True
+    )
+    business_category_id = Column(
+        Integer,
+        ForeignKey("catalog_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     name          = Column(String(150), nullable=False)
     description   = Column(Text)
@@ -39,6 +87,9 @@ class Restaurant(Base):
     owner         = relationship("User", back_populates="restaurants",
                                  foreign_keys=[owner_id])
     tenant        = relationship("Tenant", back_populates="restaurants")
+    business_category = relationship(
+        "CatalogCategory", back_populates="restaurants"
+    )
     categories    = relationship("MenuCategory", back_populates="restaurant",
                                  cascade="all, delete-orphan")
     menu_items    = relationship("MenuItem", back_populates="restaurant",
@@ -68,6 +119,12 @@ class MenuItem(Base):
     restaurant_id  = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
     category_id    = Column(Integer, ForeignKey("menu_categories.id"),
                             nullable=True)
+    business_subcategory_id = Column(
+        Integer,
+        ForeignKey("catalog_subcategories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     name           = Column(String(150), nullable=False)
     description    = Column(Text)
     price          = Column(DECIMAL(10, 2), nullable=False)
@@ -85,4 +142,7 @@ class MenuItem(Base):
 
     restaurant     = relationship("Restaurant", back_populates="menu_items")
     category       = relationship("MenuCategory", back_populates="menu_items")
+    business_subcategory = relationship(
+        "CatalogSubcategory", back_populates="menu_items"
+    )
     order_items    = relationship("OrderItem", back_populates="menu_item")

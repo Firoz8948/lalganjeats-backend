@@ -12,7 +12,9 @@ from app.modules.users.models import (
     User, CustomerProfile, Address, CustomerSettings
 )
 from app.modules.otp.models import OTP
-from app.modules.restaurants.models import Restaurant, MenuCategory, MenuItem
+from app.modules.restaurants.models import (
+    CatalogCategory, CatalogSubcategory, Restaurant, MenuCategory, MenuItem,
+)
 from app.modules.orders.models import Order, OrderItem, DeliveryProfile, DeliveryOffer
 from app.modules.banners.models import HomeBannerSlide
 from app.modules.payments.models import (

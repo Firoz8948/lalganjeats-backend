@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.core.storage import ensure_upload_dirs
 from app.modules.admin.routers import (
     banners,
+    catalog,
     customers,
     dashboard,
     orders,
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
 ensure_upload_dirs()
 
 router.include_router(dashboard.router)
+router.include_router(catalog.router)
 router.include_router(restaurants.router)
 router.include_router(banners.router)
 router.include_router(customers.router)

@@ -209,6 +209,7 @@ def update_payment_settings(
     s.free_delivery_above = body.free_delivery_above
     s.delivery_boy_per_order_earning = body.delivery_boy_per_order_earning
     s.platform_fee_percent = body.platform_fee_percent
+    s.display_price_markup_percent = body.display_price_markup_percent
     db.commit()
     db.refresh(s)
     return s
