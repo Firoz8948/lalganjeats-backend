@@ -16,6 +16,7 @@ from app.modules.payments.models import (  # noqa: F401
     PaymentSettings, RestaurantEarning, DeliveryEarning, Withdrawal, BankAccount,
 )
 from app.modules.banners.models import HomeBannerSlide  # noqa: F401
+from app.modules.promocodes.models import PromoCode, PromoCodeUsage  # noqa: F401
 
 Base.metadata.create_all(bind=engine)
 
