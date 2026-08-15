@@ -38,6 +38,10 @@ def _serialize_variants(item: MenuItem) -> list[dict]:
         if not getattr(v, "is_deleted", False)
     ]
     rows.sort(key=lambda v: (v.sort_order or 0, v.id or 0))
+    # A sole Regular row is the internal compatibility price, not a customer-
+    # visible/admin-entered variant.
+    if len(rows) == 1 and rows[0].label.strip().lower() == "regular":
+        return []
     return [
         {
             "id": v.id,

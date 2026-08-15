@@ -70,6 +70,11 @@ def get_restaurant_menu(restaurant_id: int, db: Session = Depends(get_db)):
                 key=lambda x: (x.sort_order or 0, x.id or 0),
             )
         ]
+        if (
+            len(variants) == 1
+            and variants[0]["label"].strip().lower() == "regular"
+        ):
+            variants = []
         available_prices = [v["price"] for v in variants if v["is_available"]]
         list_price = min(available_prices) if available_prices else float(item.price)
         result.append(
