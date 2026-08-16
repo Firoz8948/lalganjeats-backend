@@ -34,8 +34,28 @@ def record_legal_acceptance(
     user.legal_terms_accepted_at = now or datetime.now(timezone.utc)
 
 
+def ensure_role_can_register(role: str, existing_user: User | None) -> None:
+    if role == "delivery_partner" and existing_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Delivery partner accounts must be created by your tenant admin",
+        )
+
+
 def send_otp(phone: str, role: str, db: Session) -> dict:
     """Login OTP — delegated to otp module."""
+    existing_user = db.query(User).filter(User.phone == phone).first()
+    ensure_role_can_register(role, existing_user)
+    if existing_user and existing_user.role != role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"This phone is registered as '{existing_user.role}'.",
+        )
+    if existing_user and not existing_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended. Contact support.",
+        )
     return otp_service.send_login_otp(phone, db)
 
 
@@ -51,6 +71,7 @@ def verify_otp_and_login(
     otp_service.verify_login_otp(phone, otp_code, db)
 
     user = db.query(User).filter(User.phone == phone).first()
+    ensure_role_can_register(role, user)
 
     if user:
         if user.role != role:

@@ -29,6 +29,7 @@ from app.modules.payments.models import (
 from app.modules.promocodes.models import PromoCode, PromoCodeUsage  # noqa: F401
 from app.modules.admin.models import ImpersonationSession  # noqa: F401
 from app.modules.admin.reports.models import ReportDelivery  # noqa: F401
+from app.modules.delivery_partner.models import DeliveryPartnerDetails  # noqa: F401
 
 # ── Import routers ─────────────────────────────────────────
 from app.modules.auth.router        import router as auth_router

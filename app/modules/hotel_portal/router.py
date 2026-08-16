@@ -16,6 +16,8 @@ router = APIRouter(prefix="/api/v1/hotel-portal", tags=["Hotel Portal"])
 
 # ─── Helpers ───────────────────────────────────────────────
 def _serialize_order(o: Order) -> dict:
+    from app.modules.delivery_partner.service import serialize_public_identity
+
     return {
         "id":               o.id,
         "order_number":     o.order_number,
@@ -24,6 +26,7 @@ def _serialize_order(o: Order) -> dict:
         "payment_method":   o.payment_method,
         "customer":         o.customer.full_name if o.customer else None,
         "delivery_address": o.delivery_address,
+        "delivery_partner": serialize_public_identity(o.delivery_partner),
         "created_at":       o.created_at.isoformat(),
         "items": [
             {

@@ -259,6 +259,8 @@ def get_my_orders(
 
     orders = query.order_by(Order.created_at.desc()).all()
 
+    from app.modules.delivery_partner.service import serialize_public_identity
+
     return [
         {
             "id":             o.id,
@@ -274,6 +276,7 @@ def get_my_orders(
             "total_amount":   float(o.total_amount),
             "distance_km":    float(o.distance_km) if o.distance_km is not None else None,
             "eta_minutes":    o.eta_minutes,
+            "delivery_partner": serialize_public_identity(o.delivery_partner),
             "items": [
                 {
                     "name":     i.name,

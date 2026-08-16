@@ -7,6 +7,7 @@ from app.core.maps import distance_and_drive_minutes
 from app.modules.users.models import User
 from app.modules.getlocation import repository as loc_repo
 from app.modules.tracking.schemas import LatLng, TrackOrderOut, TrackingPublicConfig
+from app.modules.delivery_partner.service import serialize_public_identity
 
 TRACKABLE = ("assigned", "picked_up", "on_the_way", "delivered")
 
@@ -85,6 +86,8 @@ def get_track_snapshot(
     if not order.delivery_partner_id:
         base.message = "No delivery partner assigned yet"
         return base
+
+    base.delivery_partner = serialize_public_identity(order.delivery_partner)
 
     if order.status not in TRACKABLE:
         base.message = f"Tracking not available for status '{order.status}'"

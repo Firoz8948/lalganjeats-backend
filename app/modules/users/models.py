@@ -55,6 +55,12 @@ class User(Base):
         "DeliveryProfile", back_populates="user",
         uselist=False
     )
+    delivery_partner_details = relationship(
+        "DeliveryPartnerDetails",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     orders_as_customer  = relationship(
         "Order", back_populates="customer",
         foreign_keys="Order.customer_id"

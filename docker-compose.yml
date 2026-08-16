@@ -9,3 +9,4 @@ services:
       - .env
     volumes:
       - ./uploads:/app/uploads
+      - ./private_uploads:/app/private_uploads

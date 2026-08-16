@@ -2,6 +2,7 @@
 from datetime import datetime
 from typing import Optional, Literal
 from pydantic import BaseModel
+from app.modules.delivery_partner.schemas import DeliveryPartnerPublic
 
 
 class LatLng(BaseModel):
@@ -26,6 +27,7 @@ class TrackOrderOut(BaseModel):
     eta_label: Optional[str] = None
     updated_at: Optional[datetime] = None
     delivery_partner_id: Optional[int] = None
+    delivery_partner: Optional[DeliveryPartnerPublic] = None
     google_maps_api_key: Optional[str] = None
 
 

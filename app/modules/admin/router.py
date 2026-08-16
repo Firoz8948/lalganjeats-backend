@@ -12,6 +12,7 @@ from app.modules.admin.routers import (
     tenant,
 )
 from app.modules.admin.reports.router import router as reports_router
+from app.modules.delivery_partner.router import router as delivery_partners_router
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
 
@@ -26,3 +27,4 @@ router.include_router(orders.router)
 router.include_router(settlements.router)
 router.include_router(reports_router)
 router.include_router(tenant.router)
+router.include_router(delivery_partners_router)
