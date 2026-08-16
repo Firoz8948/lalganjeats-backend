@@ -24,6 +24,18 @@ class ImpersonationExitResponse(BaseModel):
     ended_at: str | None = None
 
 
+class DeliveryPartnerImpersonationResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    user_id: int
+    full_name: str | None = None
+    phone: str | None = None
+    impersonated_by: int
+    impersonation_session_id: str
+    redirect_to: str = "/deliverypartner/home"
+
+
 class HomeBannerSlideUpdate(BaseModel):
     id: int | None = None
     slide_number: int | None = None

@@ -56,17 +56,26 @@ def validate_impersonation_target(admin, restaurant: Restaurant):
     return owner
 
 
-def assert_live_impersonation_session(db: Session, owner) -> ImpersonationSession | None:
-    """Reject ended/expired impersonation tokens; no-op for normal owners."""
-    jti = getattr(owner, "impersonation_session_id", None)
+def assert_live_impersonation_session(
+    db: Session,
+    target_user,
+    expected_type: str | None = None,
+) -> ImpersonationSession | None:
+    """Reject ended, expired, or scope-mismatched impersonation tokens."""
+    jti = getattr(target_user, "impersonation_session_id", None)
+    impersonation_type = getattr(target_user, "impersonation_type", None)
     impersonating = bool(
-        getattr(owner, "impersonated_by", None)
-        or getattr(owner, "impersonation_type", None)
+        getattr(target_user, "impersonated_by", None)
+        or impersonation_type
         or jti
     )
     if not impersonating:
         return None
-    if not jti or getattr(owner, "impersonation_type", None) != "restaurant":
+    if (
+        not jti
+        or impersonation_type not in {"restaurant", "delivery_partner"}
+        or (expected_type is not None and impersonation_type != expected_type)
+    ):
         raise HTTPException(401, "Impersonation session is invalid")
 
     session = (
@@ -75,7 +84,7 @@ def assert_live_impersonation_session(db: Session, owner) -> ImpersonationSessio
         .first()
     )
     now = datetime.now(timezone.utc)
-    restaurant_id = getattr(owner, "impersonated_restaurant_id", None)
+    restaurant_id = getattr(target_user, "impersonated_restaurant_id", None)
     expires_at = session.expires_at if session else None
     if expires_at is not None and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -85,19 +94,30 @@ def assert_live_impersonation_session(db: Session, owner) -> ImpersonationSessio
         or session.ended_at is not None
         or expires_at is None
         or expires_at <= now
-        or session.owner_user_id != owner.id
-        or restaurant_id is None
-        or session.restaurant_id != int(restaurant_id)
+        or session.owner_user_id != target_user.id
+        or getattr(session, "purpose", None)
+        != getattr(target_user, "impersonation_purpose", None)
+        or (
+            impersonation_type == "restaurant"
+            and (
+                restaurant_id is None
+                or session.restaurant_id != int(restaurant_id)
+            )
+        )
+        or (
+            impersonation_type == "delivery_partner"
+            and session.restaurant_id is not None
+        )
     ):
         raise HTTPException(401, "Impersonation session has ended or expired")
     return session
 
 
 def end_impersonation_session(db: Session, current_user) -> dict:
-    """Mark the caller's live restaurant impersonation session as ended."""
+    """Mark the caller's live admin impersonation session as ended."""
     session = assert_live_impersonation_session(db, current_user)
     if session is None:
-        raise HTTPException(400, "No active restaurant impersonation session")
+        raise HTTPException(400, "No active impersonation session")
     if session.ended_at is None:
         session.ended_at = datetime.now(timezone.utc)
         db.commit()

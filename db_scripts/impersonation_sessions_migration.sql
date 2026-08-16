@@ -1,4 +1,4 @@
--- Audited restaurant impersonation sessions.
+-- Audited restaurant and delivery-partner impersonation sessions.
 -- Safe to run more than once.
 
 CREATE TABLE IF NOT EXISTS impersonation_sessions (
@@ -6,15 +6,19 @@ CREATE TABLE IF NOT EXISTS impersonation_sessions (
   jti VARCHAR(64) NOT NULL UNIQUE,
   admin_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  restaurant_id INTEGER NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  restaurant_id INTEGER REFERENCES restaurants(id) ON DELETE CASCADE,
   tenant_id INTEGER REFERENCES tenants(id) ON DELETE SET NULL,
-  purpose VARCHAR(40) NOT NULL DEFAULT 'restaurant_admin_impersonation',
+  purpose VARCHAR(40) NOT NULL,
   ip_address VARCHAR(64),
   user_agent TEXT,
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   ended_at TIMESTAMPTZ
 );
+
+-- Upgrade installations that already ran the restaurant-only migration.
+ALTER TABLE impersonation_sessions
+  ALTER COLUMN restaurant_id DROP NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_impersonation_sessions_admin
   ON impersonation_sessions (admin_user_id);

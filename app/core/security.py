@@ -79,7 +79,29 @@ def require_role(*roles: str):
 # Shortcuts
 get_customer         = require_role("customer")
 get_restaurant_owner = require_role("restaurant_owner")
-get_delivery_partner = require_role("delivery_partner")
+
+
+def get_delivery_partner(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "delivery_partner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required role: delivery_partner",
+        )
+    from app.modules.admin.services.restaurants import (
+        assert_live_impersonation_session,
+    )
+
+    assert_live_impersonation_session(
+        db,
+        current_user,
+        expected_type="delivery_partner",
+    )
+    return current_user
+
+
 get_admin            = require_role("admin")          # tenant admin
 get_super_admin      = require_role("super_admin")    # platform owner
 get_any_staff        = require_role(

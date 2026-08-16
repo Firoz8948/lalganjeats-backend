@@ -1,13 +1,85 @@
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.core.security import create_access_token
+from app.modules.admin.models import ImpersonationSession
+from app.modules.admin.services.restaurants import IMPERSONATION_TTL_MINUTES
 from app.modules.orders.models import Order
 from app.modules.payments.models import DeliveryEarning, RestaurantEarning
 from app.modules.restaurants.models import Restaurant
 from app.modules.users.models import User
+
+
+DELIVERY_IMPERSONATION_PURPOSE = "delivery_admin_impersonation"
+
+
+def validate_delivery_impersonation_target(admin: User, partner: User) -> User:
+    """Return a delivery partner only when owned by the admin's tenant."""
+    if admin.role != "admin" or admin.tenant_id is None:
+        raise HTTPException(403, "Tenant admin access required")
+    if partner.tenant_id != admin.tenant_id or partner.role != "delivery_partner":
+        raise HTTPException(404, "Delivery partner not found")
+    if not partner.is_active:
+        raise HTTPException(400, "Delivery partner is inactive")
+    return partner
+
+
+def impersonate_delivery_partner(
+    db: Session,
+    partner_id: int,
+    admin: User,
+    request: Request | None = None,
+) -> dict:
+    partner = db.query(User).filter(User.id == partner_id).first()
+    if not partner:
+        raise HTTPException(404, "Delivery partner not found")
+    partner = validate_delivery_impersonation_target(admin, partner)
+
+    jti = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=IMPERSONATION_TTL_MINUTES
+    )
+    audit = ImpersonationSession(
+        jti=jti,
+        admin_user_id=admin.id,
+        owner_user_id=partner.id,
+        restaurant_id=None,
+        tenant_id=admin.tenant_id,
+        purpose=DELIVERY_IMPERSONATION_PURPOSE,
+        ip_address=request.client.host if request and request.client else None,
+        user_agent=request.headers.get("user-agent") if request else None,
+        expires_at=expires_at,
+    )
+    db.add(audit)
+    db.commit()
+
+    token = create_access_token(
+        {
+            "sub": str(partner.id),
+            "role": "delivery_partner",
+            "tenant_id": admin.tenant_id,
+            "impersonated_by": admin.id,
+            "impersonation_type": "delivery_partner",
+            "impersonation_session_id": jti,
+            "purpose": DELIVERY_IMPERSONATION_PURPOSE,
+        },
+        expires_delta=timedelta(minutes=IMPERSONATION_TTL_MINUTES),
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": "delivery_partner",
+        "user_id": partner.id,
+        "full_name": partner.full_name,
+        "phone": partner.phone,
+        "impersonated_by": admin.id,
+        "impersonation_session_id": jti,
+        "redirect_to": "/deliverypartner/home",
+    }
 
 
 def list_restaurant_settlements(db: Session, current: User):
@@ -92,6 +164,7 @@ def list_delivery_settlements(db: Session, current: User):
             User.id,
             User.full_name,
             User.phone,
+            User.is_active,
             unsettled_amount.label("unsettled_amount"),
             unsettled_orders.label("unsettled_orders"),
             settled_amount.label("settled_amount_lifetime"),
@@ -103,13 +176,10 @@ def list_delivery_settlements(db: Session, current: User):
         .filter(User.role == "delivery_partner")
     )
     if current.tenant_id:
-        query = (
-            query.join(Order, Order.id == DeliveryEarning.order_id)
-            .filter(Order.tenant_id == current.tenant_id)
-        )
+        query = query.filter(User.tenant_id == current.tenant_id)
 
     rows = (
-        query.group_by(User.id, User.full_name, User.phone)
+        query.group_by(User.id, User.full_name, User.phone, User.is_active)
         .order_by(User.full_name)
         .all()
     )
@@ -118,6 +188,7 @@ def list_delivery_settlements(db: Session, current: User):
             "id": row.id,
             "name": row.full_name or row.phone or f"Partner #{row.id}",
             "phone": row.phone,
+            "is_active": bool(row.is_active),
             "unsettled_amount": round(
                 float(row.unsettled_amount or 0),
                 2,
