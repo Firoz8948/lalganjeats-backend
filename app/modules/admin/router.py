@@ -11,6 +11,7 @@ from app.modules.admin.routers import (
     settlements,
     tenant,
 )
+from app.modules.admin.reports.router import router as reports_router
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
 
@@ -23,4 +24,5 @@ router.include_router(banners.router)
 router.include_router(customers.router)
 router.include_router(orders.router)
 router.include_router(settlements.router)
+router.include_router(reports_router)
 router.include_router(tenant.router)

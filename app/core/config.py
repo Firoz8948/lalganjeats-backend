@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     SMS_BRAND_NAME: str = "LalganjEats"
     DELIVERY_OFFER_WAIT_SECONDS: int = 10
 
+    # Partner report delivery
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_USE_TLS: bool = True
+    WHATSAPP_ACCESS_TOKEN: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+    WHATSAPP_GRAPH_VERSION: str = "v22.0"
+
     class Config:
         env_file = ".env"
 
