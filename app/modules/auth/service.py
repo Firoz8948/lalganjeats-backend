@@ -35,10 +35,17 @@ def record_legal_acceptance(
 
 
 def ensure_role_can_register(role: str, existing_user: User | None) -> None:
-    if role == "delivery_partner" and existing_user is None:
+    partner_labels = {
+        "delivery_partner": "Delivery partner",
+        "restaurant_owner": "Restaurant partner",
+    }
+    if role in partner_labels and existing_user is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Delivery partner accounts must be created by your tenant admin",
+            detail=(
+                f"{partner_labels[role]} is not registered on this number. "
+                "Contact the admin for listing."
+            ),
         )
 
 

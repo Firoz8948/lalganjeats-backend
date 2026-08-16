@@ -61,6 +61,13 @@ def test_unknown_delivery_partner_cannot_self_register():
     assert "admin" in exc.value.detail.lower()
 
 
+def test_unknown_restaurant_owner_cannot_self_register():
+    with pytest.raises(HTTPException) as exc:
+        ensure_role_can_register("restaurant_owner", existing_user=None)
+    assert exc.value.status_code == 403
+    assert "admin" in exc.value.detail.lower()
+
+
 def test_preprovisioned_delivery_partner_can_login():
     user = SimpleNamespace(role="delivery_partner", is_active=True)
     ensure_role_can_register("delivery_partner", existing_user=user)
