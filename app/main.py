@@ -23,6 +23,7 @@ from app.modules.payments.models import (
     Withdrawal, BankAccount,
 )
 from app.modules.promocodes.models import PromoCode, PromoCodeUsage  # noqa: F401
+from app.modules.admin.models import ImpersonationSession  # noqa: F401
 
 # ── Import routers ─────────────────────────────────────────
 from app.modules.auth.router        import router as auth_router

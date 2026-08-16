@@ -1,9 +1,13 @@
 from fastapi import HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session, joinedload
 
+import secrets
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.core.security import create_access_token
 from app.core.storage import save_upload
+from app.modules.admin.models import ImpersonationSession
 from app.modules.admin.schemas import (
     AdminMenuItemCreate,
     AdminMenuItemUpdate,
@@ -25,6 +29,152 @@ _KNOWN_LABELS = {
     "full": "Full",
     "regular": "Regular",
 }
+
+IMPERSONATION_TTL_MINUTES = 30
+IMPERSONATION_PURPOSE = "restaurant_admin_impersonation"
+
+
+def validate_impersonation_target(admin, restaurant: Restaurant):
+    """Return the owner only when the tenant admin may enter this restaurant."""
+    if admin.role != "admin" or admin.tenant_id is None:
+        raise HTTPException(403, "Tenant admin access required")
+    if restaurant.tenant_id != admin.tenant_id:
+        # Avoid exposing another tenant's restaurant IDs.
+        raise HTTPException(404, "Restaurant not found")
+    if not restaurant.is_active:
+        raise HTTPException(400, "Restaurant is inactive")
+    if not getattr(restaurant, "is_approved", False):
+        raise HTTPException(400, "Restaurant is not approved")
+    owner = getattr(restaurant, "owner", None)
+    if (
+        owner is None
+        or owner.role != "restaurant_owner"
+        or not owner.is_active
+        or owner.tenant_id != admin.tenant_id
+    ):
+        raise HTTPException(400, "Restaurant owner is inactive or unavailable")
+    return owner
+
+
+def assert_live_impersonation_session(db: Session, owner) -> ImpersonationSession | None:
+    """Reject ended/expired impersonation tokens; no-op for normal owners."""
+    jti = getattr(owner, "impersonation_session_id", None)
+    impersonating = bool(
+        getattr(owner, "impersonated_by", None)
+        or getattr(owner, "impersonation_type", None)
+        or jti
+    )
+    if not impersonating:
+        return None
+    if not jti or getattr(owner, "impersonation_type", None) != "restaurant":
+        raise HTTPException(401, "Impersonation session is invalid")
+
+    session = (
+        db.query(ImpersonationSession)
+        .filter(ImpersonationSession.jti == jti)
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    restaurant_id = getattr(owner, "impersonated_restaurant_id", None)
+    expires_at = session.expires_at if session else None
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if (
+        session is None
+        or session.ended_at is not None
+        or expires_at is None
+        or expires_at <= now
+        or session.owner_user_id != owner.id
+        or restaurant_id is None
+        or session.restaurant_id != int(restaurant_id)
+    ):
+        raise HTTPException(401, "Impersonation session has ended or expired")
+    return session
+
+
+def end_impersonation_session(db: Session, current_user) -> dict:
+    """Mark the caller's live restaurant impersonation session as ended."""
+    session = assert_live_impersonation_session(db, current_user)
+    if session is None:
+        raise HTTPException(400, "No active restaurant impersonation session")
+    if session.ended_at is None:
+        session.ended_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(session)
+    ended = session.ended_at
+    if ended is not None and ended.tzinfo is None:
+        ended = ended.replace(tzinfo=timezone.utc)
+    return {
+        "ok": True,
+        "ended_at": ended.isoformat() if ended else None,
+    }
+
+
+def impersonate_restaurant(
+    db: Session,
+    restaurant_id: int,
+    admin,
+    request: Request | None = None,
+) -> dict:
+    restaurant = (
+        db.query(Restaurant)
+        .options(joinedload(Restaurant.owner))
+        .filter(Restaurant.id == restaurant_id)
+        .first()
+    )
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    owner = validate_impersonation_target(admin, restaurant)
+
+    jti = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=IMPERSONATION_TTL_MINUTES)
+    ip_address = None
+    user_agent = None
+    if request is not None:
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+
+    audit = ImpersonationSession(
+        jti=jti,
+        admin_user_id=admin.id,
+        owner_user_id=owner.id,
+        restaurant_id=restaurant.id,
+        tenant_id=admin.tenant_id,
+        purpose=IMPERSONATION_PURPOSE,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        expires_at=expires_at,
+    )
+    db.add(audit)
+    db.commit()
+
+    token = create_access_token(
+        {
+            "sub": str(owner.id),
+            "role": "restaurant_owner",
+            "tenant_id": admin.tenant_id,
+            "restaurant_id": restaurant.id,
+            "impersonated_by": admin.id,
+            "impersonation_type": "restaurant",
+            "impersonation_session_id": jti,
+            "purpose": IMPERSONATION_PURPOSE,
+        },
+        expires_delta=timedelta(minutes=IMPERSONATION_TTL_MINUTES),
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": "restaurant_owner",
+        "user_id": owner.id,
+        "full_name": owner.full_name,
+        "phone": owner.phone,
+        "restaurant_id": restaurant.id,
+        "restaurant_name": restaurant.name,
+        "impersonated_by": admin.id,
+        "impersonation_session_id": jti,
+        "redirect_to": "/hotel-portal/dashboard",
+    }
 
 
 def normalize_variant_label(label: str) -> str:

@@ -2,8 +2,13 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_admin
-from app.modules.admin.schemas import AdminMenuItemCreate, AdminMenuItemUpdate
+from app.core.security import get_admin, get_current_user
+from app.modules.admin.schemas import (
+    AdminMenuItemCreate,
+    AdminMenuItemUpdate,
+    ImpersonationExitResponse,
+    RestaurantImpersonationResponse,
+)
 from app.modules.admin.services import restaurants as admin_restaurant_service
 from app.modules.restaurants import service as restaurant_service
 from app.modules.restaurants.models import Restaurant
@@ -41,6 +46,37 @@ def get_restaurant_admin(
         restaurant_id,
         current.tenant_id,
     )
+
+
+@router.post(
+    "/restaurants/{restaurant_id}/impersonate",
+    response_model=RestaurantImpersonationResponse,
+)
+def impersonate_restaurant(
+    restaurant_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    """Issue a short-lived owner token scoped to one restaurant."""
+    return admin_restaurant_service.impersonate_restaurant(
+        db,
+        restaurant_id,
+        current,
+        request=request,
+    )
+
+
+@router.post(
+    "/impersonation/exit",
+    response_model=ImpersonationExitResponse,
+)
+def exit_restaurant_impersonation(
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """End the caller's live restaurant impersonation session (audit + revoke)."""
+    return admin_restaurant_service.end_impersonation_session(db, current)
 
 
 @router.patch("/restaurants/{restaurant_id}")

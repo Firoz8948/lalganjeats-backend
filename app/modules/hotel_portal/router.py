@@ -36,8 +36,18 @@ def _serialize_order(o: Order) -> dict:
     }
 
 
-def _get_restaurant(db: Session, owner_id: int) -> Restaurant:
-    r = db.query(Restaurant).filter(Restaurant.owner_id == owner_id).first()
+def _get_restaurant(db: Session, owner) -> Restaurant:
+    from app.modules.admin.services.restaurants import assert_live_impersonation_session
+
+    assert_live_impersonation_session(db, owner)
+    query = db.query(Restaurant).filter(Restaurant.owner_id == owner.id)
+    selected_id = getattr(owner, "impersonated_restaurant_id", None)
+    if selected_id is not None:
+        query = query.filter(
+            Restaurant.id == int(selected_id),
+            Restaurant.tenant_id == owner.tenant_id,
+        )
+    r = query.first()
     if not r:
         raise HTTPException(404, "Restaurant not found")
     return r
@@ -49,7 +59,7 @@ def get_dashboard(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
 
     total_orders   = db.query(Order).filter(
                         Order.restaurant_id == restaurant.id).count()
@@ -96,7 +106,7 @@ def toggle_open_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     restaurant.is_open = not restaurant.is_open
     db.commit()
     return {"is_open": restaurant.is_open}
@@ -108,7 +118,7 @@ def get_categories(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     cats = db.query(MenuCategory).filter(
         MenuCategory.restaurant_id == restaurant.id,
         MenuCategory.is_active == True
@@ -144,7 +154,7 @@ def get_menu(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     items = db.query(MenuItem).filter(
         MenuItem.restaurant_id == restaurant.id,
         MenuItem.is_deleted == False
@@ -173,7 +183,7 @@ def add_menu_item(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
 
     item = MenuItem(
         restaurant_id  = restaurant.id,
@@ -200,7 +210,7 @@ def update_menu_item(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     item = db.query(MenuItem).filter(
         MenuItem.id == item_id,
         MenuItem.restaurant_id == restaurant.id,
@@ -230,7 +240,7 @@ def delete_menu_item(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     item = db.query(MenuItem).filter(
         MenuItem.id == item_id,
         MenuItem.restaurant_id == restaurant.id
@@ -248,7 +258,7 @@ def toggle_availability(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     item = db.query(MenuItem).filter(
         MenuItem.id == item_id,
         MenuItem.restaurant_id == restaurant.id
@@ -267,7 +277,7 @@ def get_orders(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
 
     query = db.query(Order).filter(Order.restaurant_id == restaurant.id)
 
@@ -302,7 +312,7 @@ def update_order_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.restaurant_id == restaurant.id
@@ -336,7 +346,7 @@ def get_earnings(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
 
     query = db.query(Order).filter(
         Order.restaurant_id == restaurant.id,
@@ -393,7 +403,7 @@ def get_settings(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
     return {
         "restaurant_name":     restaurant.name,
         "phone":               restaurant.phone or "",
@@ -411,7 +421,7 @@ def update_settings(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
-    restaurant = _get_restaurant(db, current_user.id)
+    restaurant = _get_restaurant(db, current_user)
 
     if payload.restaurant_name is not None:
         restaurant.name = payload.restaurant_name

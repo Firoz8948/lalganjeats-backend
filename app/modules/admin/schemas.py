@@ -5,6 +5,25 @@ class CatalogNameCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=120)
 
 
+class RestaurantImpersonationResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    user_id: int
+    full_name: str | None = None
+    phone: str | None = None
+    restaurant_id: int
+    restaurant_name: str
+    impersonated_by: int
+    impersonation_session_id: str
+    redirect_to: str = "/hotel-portal/dashboard"
+
+
+class ImpersonationExitResponse(BaseModel):
+    ok: bool = True
+    ended_at: str | None = None
+
+
 class HomeBannerSlideUpdate(BaseModel):
     id: int | None = None
     slide_number: int | None = None

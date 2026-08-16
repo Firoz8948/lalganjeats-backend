@@ -56,6 +56,13 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Request-scoped JWT context used by short-lived impersonation sessions.
+    # These are transient attributes and are never persisted by SQLAlchemy.
+    user.impersonated_by = payload.get("impersonated_by")
+    user.impersonated_restaurant_id = payload.get("restaurant_id")
+    user.impersonation_type = payload.get("impersonation_type")
+    user.impersonation_session_id = payload.get("impersonation_session_id")
+    user.impersonation_purpose = payload.get("purpose")
     return user
 
 # ── Role Guards ───────────────────────────────────────────
