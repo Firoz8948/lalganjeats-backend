@@ -15,17 +15,17 @@ def _settings(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
-def test_admin_pl_is_display_minus_transfer_minus_delivery_earning():
+def test_admin_pl_uses_zone_charge_as_delivery_partner_earning():
     split = calculate_split(
         display_total=100,
         actual_price_total=70,
-        settings=_settings(delivery_boy_per_order_earning=40),
+        settings=_settings(delivery_boy_per_order_earning=999),
         delivery_charge=20,
     )
 
     assert split.hotel_earning == 70
-    assert split.delivery_earning == 40
-    assert split.admin_earning == -10
+    assert split.delivery_earning == 20
+    assert split.admin_earning == 10
 
 
 def test_platform_fee_percent_does_not_change_admin_pl():
@@ -39,7 +39,7 @@ def test_platform_fee_percent_does_not_change_admin_pl():
         delivery_charge=20,
     )
 
-    assert split.admin_earning == 100 - 70 - 33
+    assert split.admin_earning == 100 - 70 - 20
 
 
 def test_split_uses_only_display_and_transfer_prices():
@@ -76,14 +76,15 @@ def test_platform_charge_is_added_to_customer_total_and_admin_pl():
         display_total=100,
         actual_price_total=70,
         settings=_settings(
-            delivery_boy_per_order_earning=30,
+            delivery_boy_per_order_earning=999,
             platform_charge_rupees=2,
         ),
         delivery_charge=20,
     )
 
     assert split.customer_pays == 122
-    assert split.admin_earning == 100 - 70 - 30 + 2
+    assert split.delivery_earning == 20
+    assert split.admin_earning == 100 - 70 - 20 + 2
 
 
 def test_new_manual_earning_is_unsettled():

@@ -1,5 +1,5 @@
 # backend/app/modules/auth/service.py
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.modules.users.models import User
@@ -16,6 +16,22 @@ ROLE_REDIRECTS = {
     "admin":             "/admin/dashboard",
     "super_admin":       "/superadmin/dashboard",
 }
+CURRENT_LEGAL_VERSION = "2026-08-17"
+
+
+def record_legal_acceptance(
+    user: User,
+    accepted: bool,
+    version: str,
+    now: datetime | None = None,
+) -> None:
+    if not accepted or version != CURRENT_LEGAL_VERSION:
+        raise HTTPException(
+            status_code=400,
+            detail="You must accept the current Terms, Privacy Policy and Refund Policy",
+        )
+    user.legal_terms_version = CURRENT_LEGAL_VERSION
+    user.legal_terms_accepted_at = now or datetime.now(timezone.utc)
 
 
 def send_otp(phone: str, role: str, db: Session) -> dict:
@@ -28,6 +44,8 @@ def verify_otp_and_login(
     otp_code: str,
     role: str,
     full_name: str,
+    accepted_legal: bool,
+    legal_version: str,
     db: Session
 ) -> dict:
     otp_service.verify_login_otp(phone, otp_code, db)
@@ -41,6 +59,11 @@ def verify_otp_and_login(
                 detail=f"This phone is registered as '{user.role}'. "
                        f"Please use the correct login page."
             )
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has been suspended. Contact support.",
+            )
     else:
         user = User(
             phone=phone,
@@ -50,8 +73,13 @@ def verify_otp_and_login(
             is_verified=True
         )
         db.add(user)
-        db.commit()
-        db.refresh(user)
+    record_legal_acceptance(
+        user,
+        accepted=accepted_legal,
+        version=legal_version,
+    )
+    db.commit()
+    db.refresh(user)
 
     token = create_access_token({"sub": str(user.id), "role": user.role})
 
@@ -62,7 +90,8 @@ def verify_otp_and_login(
         "user_id": user.id,
         "full_name": user.full_name,
         "phone": user.phone,
-        "redirect_to": ROLE_REDIRECTS[user.role]
+        "redirect_to": ROLE_REDIRECTS[user.role],
+        "legal_terms_version": user.legal_terms_version,
     }
 
 

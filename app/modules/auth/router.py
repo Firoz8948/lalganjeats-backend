@@ -31,6 +31,8 @@ def verify_otp(payload: schemas.VerifyOTPRequest, db: Session = Depends(get_db))
         otp_code=payload.otp_code,
         role=payload.role,
         full_name=payload.full_name,
+        accepted_legal=payload.accepted_legal,
+        legal_version=payload.legal_version,
         db=db
     )
 

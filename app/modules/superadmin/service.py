@@ -5,13 +5,16 @@ from fastapi import HTTPException
 
 from app.core.security import hash_password, create_access_token
 from app.modules.users.models import User
-from app.modules.superadmin.models import Tenant, DeliveryZone
+from app.modules.superadmin.models import Tenant, DeliveryException, DeliveryZone
 from app.modules.superadmin import repository as repo
 from app.modules.superadmin.schemas import (
     TenantCreateRequest,
     TenantUpdateRequest,
     ZoneCreateRequest,
     ZoneUpdateRequest,
+    DeliveryExceptionCreateRequest,
+    DeliveryExceptionUpdateRequest,
+    DeliveryExceptionOut,
     TenantOut,
     TenantListItem,
     ZoneOut,
@@ -252,6 +255,15 @@ def get_admin_centre(db: Session, admin: User) -> TenantCentreOut:
         center_address=tenant.center_address,
         platform_charge_percent=tenant.platform_charge_percent,
         zones=[ZoneOut.model_validate(z) for z in repo.list_zones(db, tenant.id)],
+        delivery_exceptions=[
+            DeliveryExceptionOut.model_validate(item)
+            for item in (
+                db.query(DeliveryException)
+                .filter(DeliveryException.tenant_id == tenant.id)
+                .order_by(DeliveryException.name)
+                .all()
+            )
+        ],
     )
 
 
@@ -303,3 +315,73 @@ def delete_zone(db: Session, admin: User, zone_id: int) -> dict:
     repo.delete_zone(db, zone)
     db.commit()
     return {"message": "Zone deleted"}
+
+
+def create_delivery_exception(
+    db: Session,
+    admin: User,
+    payload: DeliveryExceptionCreateRequest,
+) -> DeliveryExceptionOut:
+    tenant = require_admin_tenant(db, admin)
+    item = DeliveryException(
+        tenant_id=tenant.id,
+        name=payload.name.strip(),
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        radius_meters=payload.radius_meters,
+        delivery_charge=payload.delivery_charge,
+        is_active=True,
+    )
+    db.add(item)
+    try:
+        db.commit()
+        db.refresh(item)
+    except Exception:
+        db.rollback()
+        raise HTTPException(400, "Could not create exception location (duplicate name?)")
+    return DeliveryExceptionOut.model_validate(item)
+
+
+def update_delivery_exception(
+    db: Session,
+    admin: User,
+    exception_id: int,
+    payload: DeliveryExceptionUpdateRequest,
+) -> DeliveryExceptionOut:
+    tenant = require_admin_tenant(db, admin)
+    item = (
+        db.query(DeliveryException)
+        .filter(
+            DeliveryException.id == exception_id,
+            DeliveryException.tenant_id == tenant.id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Exception location not found")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(item, key, value.strip() if key == "name" and value else value)
+    db.commit()
+    db.refresh(item)
+    return DeliveryExceptionOut.model_validate(item)
+
+
+def delete_delivery_exception(
+    db: Session,
+    admin: User,
+    exception_id: int,
+) -> dict:
+    tenant = require_admin_tenant(db, admin)
+    item = (
+        db.query(DeliveryException)
+        .filter(
+            DeliveryException.id == exception_id,
+            DeliveryException.tenant_id == tenant.id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Exception location not found")
+    db.delete(item)
+    db.commit()
+    return {"message": "Exception location deleted"}

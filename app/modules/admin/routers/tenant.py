@@ -61,3 +61,47 @@ def delete_zone(
     current: User = Depends(get_admin),
 ):
     return tenant_service.delete_zone(db, current, zone_id)
+
+
+@router.post(
+    "/delivery-exceptions",
+    response_model=tenant_schemas.DeliveryExceptionOut,
+    status_code=201,
+)
+def create_delivery_exception(
+    payload: tenant_schemas.DeliveryExceptionCreateRequest,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return tenant_service.create_delivery_exception(db, current, payload)
+
+
+@router.patch(
+    "/delivery-exceptions/{exception_id}",
+    response_model=tenant_schemas.DeliveryExceptionOut,
+)
+def update_delivery_exception(
+    exception_id: int,
+    payload: tenant_schemas.DeliveryExceptionUpdateRequest,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return tenant_service.update_delivery_exception(
+        db,
+        current,
+        exception_id,
+        payload,
+    )
+
+
+@router.delete("/delivery-exceptions/{exception_id}")
+def delete_delivery_exception(
+    exception_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return tenant_service.delete_delivery_exception(
+        db,
+        current,
+        exception_id,
+    )

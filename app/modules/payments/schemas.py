@@ -12,13 +12,18 @@ class PaymentSettingsBase(BaseModel):
     platform_fee_percent: float = Field(..., ge=0, le=100)
     platform_charge_rupees: float = Field(2.0, ge=0)
     display_price_markup_percent: float = Field(..., ge=0, le=500)
+    allow_prepaid_orders: bool = True
+    allow_cod_orders: bool = True
+    cod_max_order_amount: float = Field(500, ge=0)
 
 
 class PaymentSettingsUpdate(BaseModel):
-    delivery_boy_per_order_earning: float = Field(..., ge=0)
     platform_fee_percent: float = Field(0, ge=0, le=100)
     platform_charge_rupees: float = Field(..., ge=0)
     display_price_markup_percent: float = Field(..., ge=0, le=500)
+    allow_prepaid_orders: bool = True
+    allow_cod_orders: bool = True
+    cod_max_order_amount: float = Field(500, ge=0)
 
 
 class PaymentSettingsResponse(PaymentSettingsBase):

@@ -35,7 +35,10 @@ def calculate_split(
     platform_fee = round((settings.platform_fee_percent / 100) * display_total, 2)
     customer_pays = round(display_total + delivery_charge + platform_charge, 2)
     hotel_earning = round(actual_price_total, 2)
-    delivery_earning = float(settings.delivery_boy_per_order_earning)
+    # The matched tenant zone controls both the customer delivery charge and
+    # the delivery partner's earning. The legacy global fixed earning is no
+    # longer used for new orders.
+    delivery_earning = delivery_charge
 
     # MRP/original price, delivery charge, and platform fee do not affect P/L.
     # Admin keeps only what remains from the displayed food price after both

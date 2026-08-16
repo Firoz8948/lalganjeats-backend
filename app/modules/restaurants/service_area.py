@@ -6,6 +6,32 @@ from typing import Iterable
 from app.core.maps import haversine_km
 
 
+def matching_delivery_exception(
+    exceptions: Iterable,
+    customer_lat: float,
+    customer_lng: float,
+):
+    """Return the nearest active exception whose radius contains the customer."""
+    matches: list[tuple[float, object]] = []
+    for exception in exceptions:
+        if not getattr(exception, "is_active", False):
+            continue
+        lat = getattr(exception, "latitude", None)
+        lng = getattr(exception, "longitude", None)
+        radius_meters = getattr(exception, "radius_meters", None)
+        if lat is None or lng is None or radius_meters is None:
+            continue
+        distance_km = haversine_km(
+            float(customer_lat),
+            float(customer_lng),
+            float(lat),
+            float(lng),
+        )
+        if distance_km * 1000 <= float(radius_meters):
+            matches.append((distance_km, exception))
+    return min(matches, key=lambda row: row[0])[1] if matches else None
+
+
 def max_active_zone_radius_km(zones: Iterable) -> float | None:
     """Largest active delivery-zone radius in km, or None if none configured."""
     radii: list[float] = []

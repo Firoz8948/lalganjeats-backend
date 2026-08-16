@@ -208,9 +208,12 @@ def update_payment_settings(
     _=Depends(get_admin),
 ):
     s = ensure_payment_settings(db)
-    s.delivery_boy_per_order_earning = body.delivery_boy_per_order_earning
     s.platform_fee_percent = body.platform_fee_percent
+    s.platform_charge_rupees = body.platform_charge_rupees
     s.display_price_markup_percent = body.display_price_markup_percent
+    s.allow_prepaid_orders = body.allow_prepaid_orders
+    s.allow_cod_orders = body.allow_cod_orders
+    s.cod_max_order_amount = body.cod_max_order_amount
     db.commit()
     db.refresh(s)
     return s

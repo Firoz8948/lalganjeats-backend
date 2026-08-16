@@ -7,7 +7,11 @@ from app.core.database import Base, engine
 from app.core.storage import ensure_upload_dirs, UPLOAD_ROOT
 
 # ── Import all models (so Base knows them) ─────────────────
-from app.modules.superadmin.models import Tenant, DeliveryZone  # noqa: F401 — before User FK
+from app.modules.superadmin.models import (  # noqa: F401 — before User FK
+    Tenant,
+    DeliveryZone,
+    DeliveryException,
+)
 from app.modules.users.models import (
     User, CustomerProfile, Address, CustomerSettings
 )

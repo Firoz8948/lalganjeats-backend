@@ -16,6 +16,9 @@ class PaymentSettings(Base):
     # Fixed rupee fee added to what the customer pays at checkout.
     platform_charge_rupees = Column(Float, default=2.0)
     display_price_markup_percent = Column(Float, default=30.0)
+    allow_prepaid_orders = Column(Boolean, default=True, nullable=False)
+    allow_cod_orders = Column(Boolean, default=True, nullable=False)
+    cod_max_order_amount = Column(Float, default=500.0, nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 

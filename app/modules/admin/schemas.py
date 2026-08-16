@@ -54,6 +54,10 @@ class HomeBannerPatchRequest(BaseModel):
     is_active: bool | None = None
 
 
+class CustomerStatusUpdate(BaseModel):
+    is_active: bool
+
+
 class AdminMenuVariantCreate(BaseModel):
     label: str = Field(..., min_length=1, max_length=40)
     actual_price: float = Field(gt=0)

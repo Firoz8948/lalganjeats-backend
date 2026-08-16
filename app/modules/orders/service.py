@@ -14,7 +14,10 @@ from app.modules.orders.models import Order, OrderItem
 from app.modules.orders.schemas import PlaceOrderRequest
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuItemVariant
 from app.modules.restaurants.service import _restaurant_visible_for_customer
-from app.modules.restaurants.service_area import delivery_charge_for_distance
+from app.modules.restaurants.service_area import (
+    delivery_charge_for_distance,
+    matching_delivery_exception,
+)
 from app.modules.users.models import Address, User
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.payments.payment_split import calculate_split
@@ -67,6 +70,28 @@ def _next_order_number(db: Session) -> str:
     return f"{prefix}{seq:05d}"
 
 
+def validate_payment_method(
+    payment_method: str,
+    order_total: float,
+    settings,
+) -> None:
+    if payment_method == "online":
+        if not bool(getattr(settings, "allow_prepaid_orders", True)):
+            raise HTTPException(400, "Prepaid orders are currently disabled")
+        return
+    if payment_method != "cash":
+        raise HTTPException(400, "payment_method must be cash or online")
+    if not bool(getattr(settings, "allow_cod_orders", True)):
+        raise HTTPException(400, "Cash on delivery is currently disabled")
+    threshold = float(getattr(settings, "cod_max_order_amount", 500) or 0)
+    if float(order_total) >= threshold:
+        raise HTTPException(
+            400,
+            f"Cash on delivery is available only below ₹{threshold:g}. "
+            "Please choose prepaid payment.",
+        )
+
+
 def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict:
     if payload.payment_method not in ("cash", "online"):
         raise HTTPException(400, "payment_method must be cash or online")
@@ -75,7 +100,10 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
 
     restaurant = (
         db.query(Restaurant)
-        .options(joinedload(Restaurant.tenant).joinedload(Tenant.zones))
+        .options(
+            joinedload(Restaurant.tenant).joinedload(Tenant.zones),
+            joinedload(Restaurant.tenant).joinedload(Tenant.delivery_exceptions),
+        )
         .filter(
             Restaurant.id == payload.restaurant_id,
             Restaurant.is_active == True,
@@ -168,26 +196,34 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     actual_total = round(actual_total, 2)
 
     tenant = restaurant.tenant
-    zone_origin_lat = (
-        float(restaurant.latitude)
-        if restaurant.latitude is not None
-        else float(tenant.center_latitude)
-    )
-    zone_origin_lng = (
-        float(restaurant.longitude)
-        if restaurant.longitude is not None
-        else float(tenant.center_longitude)
-    )
-    zone_distance_km = haversine_km(
+    exception = matching_delivery_exception(
+        tenant.delivery_exceptions or [],
         float(lat),
         float(lng),
-        zone_origin_lat,
-        zone_origin_lng,
     )
-    zone_delivery_charge = delivery_charge_for_distance(
-        tenant.zones or [],
-        zone_distance_km,
-    )
+    if exception is not None:
+        zone_delivery_charge = float(exception.delivery_charge)
+    else:
+        zone_origin_lat = (
+            float(restaurant.latitude)
+            if restaurant.latitude is not None
+            else float(tenant.center_latitude)
+        )
+        zone_origin_lng = (
+            float(restaurant.longitude)
+            if restaurant.longitude is not None
+            else float(tenant.center_longitude)
+        )
+        zone_distance_km = haversine_km(
+            float(lat),
+            float(lng),
+            zone_origin_lat,
+            zone_origin_lng,
+        )
+        zone_delivery_charge = delivery_charge_for_distance(
+            tenant.zones or [],
+            zone_distance_km,
+        )
     if zone_delivery_charge is None:
         raise HTTPException(
             400,
@@ -209,6 +245,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     promo_id = None
 
     customer_pays = round(max(0.0, split.customer_pays - discount), 2)
+    validate_payment_method(payload.payment_method, customer_pays, pay_settings)
 
     distance_km = None
     eta_minutes = None

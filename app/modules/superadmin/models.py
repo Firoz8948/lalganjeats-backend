@@ -51,6 +51,12 @@ class Tenant(Base):
         "DeliveryZone", back_populates="tenant",
         cascade="all, delete-orphan", order_by="DeliveryZone.radius_km"
     )
+    delivery_exceptions = relationship(
+        "DeliveryException",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        order_by="DeliveryException.name",
+    )
 
 
 class DeliveryZone(Base):
@@ -79,3 +85,30 @@ class DeliveryZone(Base):
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
 
     tenant = relationship("Tenant", back_populates="zones")
+
+
+class DeliveryException(Base):
+    """A small custom delivery island outside the tenant's normal zone rings."""
+
+    __tablename__ = "delivery_exceptions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_delivery_exception_tenant_name"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(100), nullable=False)
+    latitude = Column(Numeric(10, 7), nullable=False)
+    longitude = Column(Numeric(10, 7), nullable=False)
+    radius_meters = Column(Integer, nullable=False, default=500)
+    delivery_charge = Column(Numeric(10, 2), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    tenant = relationship("Tenant", back_populates="delivery_exceptions")

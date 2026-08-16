@@ -7,6 +7,7 @@ from app.modules.restaurants.schemas import RestaurantPublicResponse, Restaurant
 from app.modules.restaurants.service_area import (
     customer_within_service_area,
     delivery_charge_for_distance,
+    matching_delivery_exception,
     max_active_zone_radius_km,
 )
 from app.modules.superadmin.models import Tenant
@@ -33,26 +34,34 @@ def _to_public(
         and tenant.center_latitude is not None
         and tenant.center_longitude is not None
     ):
-        zone_origin_lat = (
-            float(lat)
-            if lat is not None
-            else float(tenant.center_latitude)
-        )
-        zone_origin_lng = (
-            float(lng)
-            if lng is not None
-            else float(tenant.center_longitude)
-        )
-        zone_distance = haversine_km(
+        exception = matching_delivery_exception(
+            getattr(tenant, "delivery_exceptions", []) or [],
             customer_lat,
             customer_lng,
-            zone_origin_lat,
-            zone_origin_lng,
         )
-        delivery_charge = delivery_charge_for_distance(
-            tenant.zones or [],
-            zone_distance,
-        ) or 0.0
+        if exception is not None:
+            delivery_charge = float(exception.delivery_charge)
+        else:
+            zone_origin_lat = (
+                float(lat)
+                if lat is not None
+                else float(tenant.center_latitude)
+            )
+            zone_origin_lng = (
+                float(lng)
+                if lng is not None
+                else float(tenant.center_longitude)
+            )
+            zone_distance = haversine_km(
+                customer_lat,
+                customer_lng,
+                zone_origin_lat,
+                zone_origin_lng,
+            )
+            delivery_charge = delivery_charge_for_distance(
+                tenant.zones or [],
+                zone_distance,
+            ) or 0.0
     return RestaurantPublicResponse(
         id=restaurant.id,
         name=restaurant.name,
@@ -90,6 +99,12 @@ def _restaurant_visible_for_customer(
     tenant = getattr(restaurant, "tenant", None)
     if tenant is None:
         return False
+    if matching_delivery_exception(
+        getattr(tenant, "delivery_exceptions", []) or [],
+        customer_lat,
+        customer_lng,
+    ) is not None:
+        return True
     max_radius = max_active_zone_radius_km(getattr(tenant, "zones", []) or [])
     return customer_within_service_area(
         customer_lat,
@@ -118,7 +133,10 @@ def list_public_restaurants(
 
     query = (
         db.query(Restaurant)
-        .options(joinedload(Restaurant.tenant).joinedload(Tenant.zones))
+        .options(
+            joinedload(Restaurant.tenant).joinedload(Tenant.zones),
+            joinedload(Restaurant.tenant).joinedload(Tenant.delivery_exceptions),
+        )
         .filter(
             Restaurant.is_active == True,
             Restaurant.is_approved == True,
@@ -154,7 +172,10 @@ def get_public_restaurant(
 ) -> dict:
     restaurant = (
         db.query(Restaurant)
-        .options(joinedload(Restaurant.tenant).joinedload(Tenant.zones))
+        .options(
+            joinedload(Restaurant.tenant).joinedload(Tenant.zones),
+            joinedload(Restaurant.tenant).joinedload(Tenant.delivery_exceptions),
+        )
         .filter(
             Restaurant.id == restaurant_id,
             Restaurant.is_active == True,

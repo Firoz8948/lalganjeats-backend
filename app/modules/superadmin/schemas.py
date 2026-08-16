@@ -167,6 +167,35 @@ class ZoneUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+class DeliveryExceptionCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    latitude: Decimal = Field(..., ge=-90, le=90)
+    longitude: Decimal = Field(..., ge=-180, le=180)
+    radius_meters: int = Field(500, ge=50, le=50000)
+    delivery_charge: Decimal = Field(..., ge=0)
+
+
+class DeliveryExceptionUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    latitude: Optional[Decimal] = Field(None, ge=-90, le=90)
+    longitude: Optional[Decimal] = Field(None, ge=-180, le=180)
+    radius_meters: Optional[int] = Field(None, ge=50, le=50000)
+    delivery_charge: Optional[Decimal] = Field(None, ge=0)
+    is_active: Optional[bool] = None
+
+
+class DeliveryExceptionOut(BaseModel):
+    id: int
+    name: str
+    latitude: Decimal
+    longitude: Decimal
+    radius_meters: int
+    delivery_charge: Decimal
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
 class TenantCentreOut(BaseModel):
     """Read-only centre info for tenant admin UI."""
     id: int
@@ -177,3 +206,4 @@ class TenantCentreOut(BaseModel):
     center_address: str
     platform_charge_percent: Decimal
     zones: list[ZoneOut] = []
+    delivery_exceptions: list[DeliveryExceptionOut] = []

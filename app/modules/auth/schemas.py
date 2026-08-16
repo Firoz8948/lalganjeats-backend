@@ -12,6 +12,8 @@ class VerifyOTPRequest(BaseModel):
     otp_code: str
     role: str
     full_name: Optional[str] = None  # Required only on first login (register)
+    accepted_legal: bool = False
+    legal_version: str = ""
 
 # ── Admin (Username + Password Flow) ─────────────────────
 class AdminLoginRequest(BaseModel):
@@ -27,3 +29,4 @@ class TokenResponse(BaseModel):
     full_name: Optional[str]
     phone: Optional[str] = None
     redirect_to: str  # Frontend redirect path
+    legal_terms_version: Optional[str] = None
