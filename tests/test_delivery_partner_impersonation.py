@@ -1,9 +1,11 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
 from app.modules.admin.services import settlements
+from app.modules.admin.services.restaurants import assert_live_impersonation_session
 
 
 def _admin(**overrides):
@@ -30,6 +32,25 @@ def _partner(**overrides):
     return SimpleNamespace(**values)
 
 
+class _FakeQuery:
+    def __init__(self, row):
+        self._row = row
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _FakeDb:
+    def __init__(self, row):
+        self._row = row
+
+    def query(self, model):
+        return _FakeQuery(self._row)
+
+
 def test_delivery_impersonation_validator_is_available():
     assert callable(getattr(settlements, "validate_delivery_impersonation_target", None))
 
@@ -52,3 +73,28 @@ def test_admin_cannot_impersonate_inactive_delivery_partner():
     with pytest.raises(HTTPException) as exc:
         validator(_admin(), _partner(is_active=False))
     assert exc.value.status_code == 400
+
+
+def test_ended_delivery_impersonation_is_rejected_for_delivery_actions():
+    now = datetime.now(timezone.utc)
+    session = SimpleNamespace(
+        jti="dp-jti",
+        ended_at=now,
+        expires_at=now + timedelta(minutes=20),
+        owner_user_id=44,
+        restaurant_id=None,
+        purpose="delivery_admin_impersonation",
+    )
+    partner = _partner(
+        impersonated_by=10,
+        impersonation_type="delivery_partner",
+        impersonation_session_id="dp-jti",
+        impersonation_purpose="delivery_admin_impersonation",
+    )
+    with pytest.raises(HTTPException) as exc:
+        assert_live_impersonation_session(
+            _FakeDb(session),
+            partner,
+            expected_type="delivery_partner",
+        )
+    assert exc.value.status_code == 401

@@ -63,6 +63,14 @@ def get_current_user(
     user.impersonation_type = payload.get("impersonation_type")
     user.impersonation_session_id = payload.get("impersonation_session_id")
     user.impersonation_purpose = payload.get("purpose")
+    # Enforce revocation/expiry on every authenticated request while impersonating
+    # (covers shared endpoints such as bank-account / withdraw).
+    if user.impersonated_by or user.impersonation_type or user.impersonation_session_id:
+        from app.modules.admin.services.restaurants import (
+            assert_live_impersonation_session,
+        )
+
+        assert_live_impersonation_session(db, user)
     return user
 
 # ── Role Guards ───────────────────────────────────────────
