@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS catalog_subcategories (
     slug        VARCHAR(120) NOT NULL,
     sort_order  INTEGER DEFAULT 0,
     is_active   BOOLEAN DEFAULT TRUE,
+    is_featured BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT uq_catalog_subcategory_slug UNIQUE (category_id, slug)
 );

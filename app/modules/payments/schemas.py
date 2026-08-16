@@ -10,12 +10,14 @@ class PaymentSettingsBase(BaseModel):
     free_delivery_above: float = Field(..., ge=0)
     delivery_boy_per_order_earning: float = Field(..., ge=0)
     platform_fee_percent: float = Field(..., ge=0, le=100)
+    platform_charge_rupees: float = Field(2.0, ge=0)
     display_price_markup_percent: float = Field(..., ge=0, le=500)
 
 
 class PaymentSettingsUpdate(BaseModel):
     delivery_boy_per_order_earning: float = Field(..., ge=0)
-    platform_fee_percent: float = Field(..., ge=0, le=100)
+    platform_fee_percent: float = Field(0, ge=0, le=100)
+    platform_charge_rupees: float = Field(..., ge=0)
     display_price_markup_percent: float = Field(..., ge=0, le=500)
 
 
@@ -91,6 +93,7 @@ class SplitPreview(BaseModel):
     actual_price_total: float
     delivery_charge: float
     platform_fee: float
+    platform_charge: float = 0
     hotel_earning: float
     delivery_earning: float
     admin_earning: float

@@ -72,6 +72,7 @@ def _to_out(promo: PromoCode) -> PromoOut:
         remaining_uses=promo.remaining_uses,
         used_count=used,
         is_active=bool(promo.is_active),
+        is_public=bool(getattr(promo, "is_public", False)),
         is_expired=_is_expired(promo),
         description=promo.description,
         created_at=promo.created_at,
@@ -85,6 +86,28 @@ def list_promos(db: Session, tenant_id: int | None) -> list[PromoOut]:
         items.append(_to_out(p))
     db.commit()
     return items
+
+
+def list_public_active_promos(
+    db: Session, tenant_id: int | None = None
+) -> list[dict]:
+    rows = []
+    for promo in repo.list_public_active(db, tenant_id):
+        _maybe_auto_deactivate(db, promo)
+        if _is_expired(promo) or not promo.is_active:
+            continue
+        rows.append(
+            {
+                "code": promo.code,
+                "channel": promo.channel,
+                "percent_off": float(promo.percent_off) if promo.percent_off is not None else None,
+                "free_delivery": bool(promo.free_delivery),
+                "description": promo.description,
+                "expires_at": promo.expires_at.isoformat() if promo.expires_at else None,
+            }
+        )
+    db.commit()
+    return rows
 
 
 def create_promo(
@@ -104,6 +127,7 @@ def create_promo(
         max_uses=payload.max_uses,
         remaining_uses=payload.max_uses,
         is_active=True,
+        is_public=bool(payload.is_public),
         description=payload.description,
     )
     repo.create(db, promo)
@@ -286,7 +310,8 @@ def apply_promo_to_order(
     try:
         sub = Decimal(str(order.subtotal or 0))
         fee = Decimal(str(order.delivery_fee or 0))
-        order.total_amount = sub + fee - discount
+        platform = Decimal(str(order.platform_fee or 0))
+        order.total_amount = sub + fee + platform - discount
         if order.total_amount < 0:
             order.total_amount = Decimal("0")
     except Exception:

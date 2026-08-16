@@ -43,6 +43,8 @@ class CatalogSubcategory(Base):
     slug = Column(String(120), nullable=False)
     sort_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
+    # Admin-curated subcategories shown in the customer home hero row.
+    is_featured = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     category = relationship("CatalogCategory", back_populates="subcategories")
@@ -74,7 +76,8 @@ class Restaurant(Base):
     longitude     = Column(Numeric(11, 8), nullable=True)
     logo_url      = Column(Text)
     list_banner_url = Column(Text)   # card cover on home / restaurants list
-    banner_url    = Column(Text)     # hero above menu items on restaurant page
+    banner_url    = Column(Text)     # desktop hero above menu items
+    banner_mobile_url = Column(Text) # mobile hero above menu items
     is_open       = Column(Boolean, default=True)
     is_approved   = Column(Boolean, default=False)
     is_active     = Column(Boolean, default=True)

@@ -1,9 +1,14 @@
 import re
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.modules.restaurants.models import CatalogCategory, CatalogSubcategory
+from app.modules.restaurants.models import (
+    CatalogCategory,
+    CatalogSubcategory,
+    MenuItem,
+)
 
 
 FOOD_SUBCATEGORIES = [
@@ -118,13 +123,41 @@ def create_category(db: Session, name: str):
     return category
 
 
-def list_subcategories(db: Session, category_id: int):
-    return (
-        db.query(CatalogSubcategory)
+def list_subcategories(
+    db: Session,
+    category_id: int,
+    product_sort: str | None = None,
+):
+    """Return subcategories with the number of live (non-deleted) menu items."""
+    query = (
+        db.query(
+            CatalogSubcategory,
+            func.count(MenuItem.id).label("product_count"),
+        )
+        .outerjoin(
+            MenuItem,
+            (MenuItem.business_subcategory_id == CatalogSubcategory.id)
+            & (MenuItem.is_deleted == False),
+        )
         .filter(CatalogSubcategory.category_id == category_id)
-        .order_by(CatalogSubcategory.sort_order, CatalogSubcategory.name)
-        .all()
+        .group_by(CatalogSubcategory.id)
     )
+    if product_sort == "asc":
+        query = query.order_by(
+            func.count(MenuItem.id).asc(),
+            CatalogSubcategory.name.asc(),
+        )
+    elif product_sort == "desc":
+        query = query.order_by(
+            func.count(MenuItem.id).desc(),
+            CatalogSubcategory.name.asc(),
+        )
+    else:
+        query = query.order_by(
+            CatalogSubcategory.sort_order,
+            CatalogSubcategory.name,
+        )
+    return query.all()
 
 
 def create_subcategory(db: Session, category_id: int, name: str):
@@ -174,6 +207,18 @@ def toggle_subcategory(db: Session, subcategory_id: int):
     if not item:
         raise HTTPException(404, "Subcategory not found")
     item.is_active = not item.is_active
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def toggle_subcategory_featured(db: Session, subcategory_id: int):
+    item = db.query(CatalogSubcategory).filter(
+        CatalogSubcategory.id == subcategory_id
+    ).first()
+    if not item:
+        raise HTTPException(404, "Subcategory not found")
+    item.is_featured = not bool(item.is_featured)
     db.commit()
     db.refresh(item)
     return item

@@ -18,6 +18,7 @@ class PlaceOrderRequest(BaseModel):
     payment_method: str = "cash"  # cash | online
     notes: Optional[str] = None
     promo_code: Optional[str] = None
+    client_channel: Optional[str] = "web"
     items: List[PlaceOrderItem]
 
 
@@ -30,6 +31,7 @@ class PlaceOrderResponse(BaseModel):
     total_amount: float
     delivery_fee: float
     discount: float
+    platform_charge: float = 0
     distance_km: Optional[float] = None
     eta_minutes: Optional[int] = None
     online_payment_stub: Optional[dict] = None

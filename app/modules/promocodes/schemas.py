@@ -17,6 +17,7 @@ class PromoCreateRequest(BaseModel):
     expires_at: Optional[datetime] = None
     max_uses: int = Field(..., ge=0)  # 0 = unlimited
     description: Optional[str] = Field(None, max_length=255)
+    is_public: bool = False
 
     @field_validator("code")
     @classmethod
@@ -38,6 +39,7 @@ class PromoUpdateRequest(BaseModel):
     max_uses: Optional[int] = Field(None, ge=0)  # 0 = unlimited
     description: Optional[str] = Field(None, max_length=255)
     is_active: Optional[bool] = None
+    is_public: Optional[bool] = None
 
 
 class PromoOut(BaseModel):
@@ -51,11 +53,21 @@ class PromoOut(BaseModel):
     remaining_uses: int
     used_count: int = 0
     is_active: bool
+    is_public: bool = False
     is_expired: bool = False
     description: Optional[str]
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
+
+
+class PublicPromoOut(BaseModel):
+    code: str
+    channel: str
+    percent_off: Optional[Decimal]
+    free_delivery: bool
+    description: Optional[str]
+    expires_at: Optional[datetime] = None
 
 
 class PromoValidateRequest(BaseModel):

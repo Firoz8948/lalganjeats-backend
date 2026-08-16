@@ -61,12 +61,29 @@ def test_split_uses_zone_delivery_charge_not_fixed_payment_setting():
         settings=_settings(
             delivery_charge=999,
             free_delivery_above=0,
+            platform_charge_rupees=2,
         ),
         delivery_charge=40,
     )
 
     assert split.delivery_charge == 40
-    assert split.customer_pays == 140
+    assert split.platform_charge == 2
+    assert split.customer_pays == 142
+
+
+def test_platform_charge_is_added_to_customer_total_and_admin_pl():
+    split = calculate_split(
+        display_total=100,
+        actual_price_total=70,
+        settings=_settings(
+            delivery_boy_per_order_earning=30,
+            platform_charge_rupees=2,
+        ),
+        delivery_charge=20,
+    )
+
+    assert split.customer_pays == 122
+    assert split.admin_earning == 100 - 70 - 30 + 2
 
 
 def test_new_manual_earning_is_unsettled():

@@ -27,6 +27,18 @@ def list_promos(db: Session, tenant_id: int | None) -> list[PromoCode]:
     return q.order_by(PromoCode.created_at.desc()).all()
 
 
+def list_public_active(db: Session, tenant_id: int | None = None) -> list[PromoCode]:
+    q = db.query(PromoCode).filter(
+        PromoCode.is_active == True,
+        PromoCode.is_public == True,
+    )
+    if tenant_id is not None:
+        q = q.filter(
+            (PromoCode.tenant_id == tenant_id) | (PromoCode.tenant_id.is_(None))
+        )
+    return q.order_by(PromoCode.created_at.desc()).all()
+
+
 def list_usages(db: Session, promo_id: int) -> list[PromoCodeUsage]:
     return (
         db.query(PromoCodeUsage)

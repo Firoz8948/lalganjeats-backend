@@ -417,6 +417,7 @@ async def upload_restaurant_image(
     folder_map = {
         "list_banner": "restaurants/list_banner",
         "menu_banner": "restaurants/menu_banner",
+        "menu_banner_mobile": "restaurants/menu_banner_mobile",
         "menu_item": "restaurants/menu_items",
         "home_banner_desktop": "home_banners/desktop",
         "home_banner_mobile": "home_banners/mobile",
@@ -425,7 +426,8 @@ async def upload_restaurant_image(
         raise HTTPException(
             status_code=400,
             detail=(
-                "purpose must be 'list_banner', 'menu_banner', 'menu_item', "
+                "purpose must be 'list_banner', 'menu_banner', "
+                "'menu_banner_mobile', 'menu_item', "
                 "'home_banner_desktop', or 'home_banner_mobile'"
             ),
         )

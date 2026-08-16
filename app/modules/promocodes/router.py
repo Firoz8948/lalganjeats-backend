@@ -50,6 +50,16 @@ def validate_promocode(
     return service.validate_promo(db, payload, tenant_id=tenant_id)
 
 
+@public_router.get("/active", response_model=list[schemas.PublicPromoOut])
+def active_public_promos(
+    db: Session = Depends(get_db),
+    current: User | None = Depends(_optional_user),
+):
+    """Public offers list — secret codes are never returned here."""
+    tenant_id = getattr(current, "tenant_id", None) if current else None
+    return service.list_public_active_promos(db, tenant_id=tenant_id)
+
+
 @admin_router.get("", response_model=list[schemas.PromoOut])
 def list_promos(
     db: Session = Depends(get_db),

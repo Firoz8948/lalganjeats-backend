@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
 from app.core.maps import haversine_km
-from app.modules.restaurants.models import CatalogCategory, Restaurant
+from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
 from app.modules.restaurants.service_area import (
     customer_within_service_area,
@@ -61,6 +61,7 @@ def _to_public(
         logo_url=restaurant.logo_url,
         list_banner_url=getattr(restaurant, "list_banner_url", None),
         banner_url=getattr(restaurant, "banner_url", None),
+        banner_mobile_url=getattr(restaurant, "banner_mobile_url", None),
         address=restaurant.address,
         city=restaurant.city or "Lalganj",
         latitude=float(lat) if lat is not None else None,
@@ -103,6 +104,7 @@ def list_public_restaurants(
     db: Session,
     customer_lat: float | None = None,
     customer_lng: float | None = None,
+    subcategory_id: int | None = None,
 ) -> list[dict]:
     """
     Public list for home/restaurants pages.
@@ -114,16 +116,25 @@ def list_public_restaurants(
     if customer_lat is None or customer_lng is None:
         return []
 
-    restaurants = (
+    query = (
         db.query(Restaurant)
         .options(joinedload(Restaurant.tenant).joinedload(Tenant.zones))
         .filter(
             Restaurant.is_active == True,
             Restaurant.is_approved == True,
         )
-        .order_by(Restaurant.created_at.desc())
-        .all()
     )
+    if subcategory_id is not None:
+        query = (
+            query.join(MenuItem, MenuItem.restaurant_id == Restaurant.id)
+            .filter(
+                MenuItem.business_subcategory_id == subcategory_id,
+                MenuItem.is_deleted == False,
+                MenuItem.is_available == True,
+            )
+            .distinct()
+        )
+    restaurants = query.order_by(Restaurant.created_at.desc()).all()
     visible = [
         r
         for r in restaurants
@@ -229,6 +240,7 @@ def create_restaurant(
         logo_url=payload.logo_url,
         list_banner_url=payload.list_banner_url,
         banner_url=payload.banner_url,
+        banner_mobile_url=payload.banner_mobile_url,
         is_open=True,
         is_approved=payload.is_approved,
         is_active=True,
@@ -257,6 +269,7 @@ def _admin_row(r: Restaurant) -> dict:
         "logo_url": r.logo_url,
         "list_banner_url": getattr(r, "list_banner_url", None),
         "banner_url": getattr(r, "banner_url", None),
+        "banner_mobile_url": getattr(r, "banner_mobile_url", None),
         "business_category_id": r.business_category_id,
         "business_category": (
             r.business_category.name if r.business_category else None

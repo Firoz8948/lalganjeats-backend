@@ -20,6 +20,7 @@ class RestaurantPublicResponse(BaseModel):
     logo_url: str | None = None
     list_banner_url: str | None = None
     banner_url: str | None = None
+    banner_mobile_url: str | None = None
     address: str | None = None
     city: str = "Lalganj"
     latitude: float | None = None
@@ -40,6 +41,7 @@ class RestaurantCreateRequest(BaseModel):
     logo_url: str | None = None
     list_banner_url: str | None = None
     banner_url: str | None = None
+    banner_mobile_url: str | None = None
     owner_phone: str = Field(..., min_length=10, max_length=15)
     owner_name: str | None = None
     business_category_id: int | None = None
@@ -58,6 +60,7 @@ class RestaurantUpdateRequest(BaseModel):
     logo_url: Optional[str] = None
     list_banner_url: Optional[str] = None
     banner_url: Optional[str] = None
+    banner_mobile_url: Optional[str] = None
     is_open: Optional[bool] = None
     is_approved: Optional[bool] = None
     is_active: Optional[bool] = None

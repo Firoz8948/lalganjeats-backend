@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -19,13 +21,15 @@ def _category_row(item):
     }
 
 
-def _subcategory_row(item):
+def _subcategory_row(item, product_count: int = 0):
     return {
         "id": item.id,
         "category_id": item.category_id,
         "name": item.name,
         "slug": item.slug,
         "is_active": item.is_active,
+        "is_featured": bool(getattr(item, "is_featured", False)),
+        "product_count": product_count,
     }
 
 
@@ -55,12 +59,15 @@ def toggle_category(
 @router.get("/subcategories")
 def subcategories(
     category_id: int,
+    product_sort: Literal["asc", "desc"] | None = Query(None),
     db: Session = Depends(get_db),
     _=Depends(get_admin),
 ):
     return [
-        _subcategory_row(item)
-        for item in catalog_service.list_subcategories(db, category_id)
+        _subcategory_row(item, product_count)
+        for item, product_count in catalog_service.list_subcategories(
+            db, category_id, product_sort
+        )
     ]
 
 
@@ -84,4 +91,15 @@ def toggle_subcategory(
 ):
     return _subcategory_row(
         catalog_service.toggle_subcategory(db, subcategory_id)
+    )
+
+
+@router.patch("/subcategories/{subcategory_id}/featured")
+def toggle_subcategory_featured(
+    subcategory_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(get_admin),
+):
+    return _subcategory_row(
+        catalog_service.toggle_subcategory_featured(db, subcategory_id)
     )

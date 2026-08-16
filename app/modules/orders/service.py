@@ -241,7 +241,8 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         total_amount=Decimal(str(customer_pays)),
         display_total=Decimal(str(display_total)),
         actual_total=Decimal(str(actual_total)),
-        platform_fee=Decimal(str(split.platform_fee)),
+        # Store fixed checkout platform charge (₹), not legacy %.
+        platform_fee=Decimal(str(split.platform_charge)),
         admin_earning=Decimal(str(split.admin_earning)),
         delivery_partner_earning=Decimal(str(split.delivery_earning)),
         delivery_address=addr_text,
@@ -273,6 +274,40 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
                 subtotal=Decimal(str(sub)),
             )
         )
+
+    if payload.promo_code:
+        from app.modules.promocodes.service import apply_promo_to_order
+
+        promo_result = apply_promo_to_order(
+            db,
+            order=order,
+            code=payload.promo_code,
+            client_channel=getattr(payload, "client_channel", None) or "web",
+            tenant_id=restaurant.tenant_id,
+        )
+        if not promo_result.valid:
+            db.rollback()
+            detail = {
+                "reason": promo_result.reason,
+                "message": promo_result.message,
+                "download_required": bool(promo_result.download_required),
+            }
+            raise HTTPException(400, detail=detail)
+
+        # Keep admin P/L snapshot stable; discount is absorbed by admin.
+        order.admin_earning = Decimal(
+            str(
+                round(
+                    float(order.display_total or 0)
+                    - float(order.actual_total or 0)
+                    - float(order.delivery_partner_earning or 0)
+                    + float(order.platform_fee or 0)
+                    - float(order.discount or 0),
+                    2,
+                )
+            )
+        )
+
     db.commit()
     db.refresh(order)
 
@@ -291,6 +326,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         "total_amount": float(order.total_amount),
         "delivery_fee": float(order.delivery_fee or 0),
         "discount": float(order.discount or 0),
+        "platform_charge": float(order.platform_fee or 0),
         "distance_km": float(order.distance_km) if order.distance_km is not None else None,
         "eta_minutes": order.eta_minutes,
         "online_payment_stub": online_stub,
