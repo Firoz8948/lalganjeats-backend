@@ -5,11 +5,11 @@ The printed menu price is treated as the seller transfer price:
   display price = seller transfer + 30%
   MRP           = seller transfer + 35%
 
-Run from the backend directory on EC2:
-    python -m scripts.seed_rp_grand_breakfast_menu
+Run on EC2 inside the backend container:
+    docker compose exec backend python -m scripts.seed_rp_grand_breakfast_menu
 
 Preview without changing the database:
-    python -m scripts.seed_rp_grand_breakfast_menu --dry-run
+    docker compose exec backend python -m scripts.seed_rp_grand_breakfast_menu --dry-run
 """
 
 from __future__ import annotations
@@ -21,6 +21,11 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import func
 
 from app.core.database import SessionLocal
+
+# Register related mappers before querying Restaurant (same pattern as seed_data.py).
+from app.modules.users.models import User  # noqa: F401
+from app.modules.orders.models import Order, OrderItem  # noqa: F401
+from app.modules.payments.models import RestaurantEarning  # noqa: F401
 from app.modules.restaurants.models import (
     CatalogCategory,
     CatalogSubcategory,
