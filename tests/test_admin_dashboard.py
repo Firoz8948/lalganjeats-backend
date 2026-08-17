@@ -13,3 +13,13 @@ def test_active_offer_filter_uses_current_time():
         now=datetime(2026, 8, 16, tzinfo=timezone.utc),
     )
     assert len(filters) == 4
+
+
+def test_dashboard_revenue_counts_delivered_orders_for_tenant():
+    filters = dashboard.delivered_revenue_filters(tenant_id=7)
+
+    assert len(filters) == 2
+    assert filters[0].left.key == "status"
+    assert filters[0].right.value == "delivered"
+    assert filters[1].left.key == "tenant_id"
+    assert filters[1].right.value == 7

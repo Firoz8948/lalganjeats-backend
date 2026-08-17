@@ -35,6 +35,13 @@ def count_active_promos(
     )
 
 
+def delivered_revenue_filters(tenant_id: int | None):
+    filters = [Order.status == "delivered"]
+    if tenant_id:
+        filters.append(Order.tenant_id == tenant_id)
+    return tuple(filters)
+
+
 def get_dashboard(db: Session, current: User):
     rest_q = db.query(Restaurant)
     orders_q = db.query(Order)
@@ -53,11 +60,11 @@ def get_dashboard(db: Session, current: User):
         delivery_q = delivery_q.filter(User.tenant_id == current.tenant_id)
     total_delivery = delivery_q.count()
 
+    # Revenue is recognized when an order is delivered. Payment method does
+    # not matter: both prepaid and successfully delivered COD orders count.
     revenue_q = db.query(func.sum(Order.total_amount)).filter(
-        Order.payment_status == "paid",
+        *delivered_revenue_filters(current.tenant_id)
     )
-    if current.tenant_id:
-        revenue_q = revenue_q.filter(Order.tenant_id == current.tenant_id)
     revenue_row = revenue_q.scalar()
     total_revenue = float(revenue_row or 0)
     active_promos = count_active_promos(db, current.tenant_id)
