@@ -22,19 +22,46 @@ from sqlalchemy import func
 
 from app.core.database import SessionLocal
 
-# Register related mappers before querying Restaurant (same pattern as seed_data.py).
-from app.modules.users.models import User  # noqa: F401
-from app.modules.orders.models import Order, OrderItem  # noqa: F401
-from app.modules.payments.models import RestaurantEarning  # noqa: F401
+# Register every mapper the same way app.main does, or SQLAlchemy fails on
+# unresolved relationship strings (User, DeliveryPartnerDetails, etc.).
+from app.modules.superadmin.models import (  # noqa: F401
+    Tenant,
+    DeliveryZone,
+    DeliveryException,
+)
+from app.modules.users.models import (  # noqa: F401
+    User,
+    CustomerProfile,
+    Address,
+    CustomerSettings,
+)
+from app.modules.otp.models import OTP  # noqa: F401
 from app.modules.restaurants.models import (
     CatalogCategory,
     CatalogSubcategory,
+    Restaurant,
     MenuCategory,
     MenuItem,
     MenuItemVariant,
-    Restaurant,
 )
-from app.modules.superadmin.models import Tenant
+from app.modules.orders.models import (  # noqa: F401
+    Order,
+    OrderItem,
+    DeliveryProfile,
+    DeliveryOffer,
+)
+from app.modules.banners.models import HomeBannerSlide  # noqa: F401
+from app.modules.payments.models import (  # noqa: F401
+    PaymentSettings,
+    RestaurantEarning,
+    DeliveryEarning,
+    Withdrawal,
+    BankAccount,
+)
+from app.modules.promocodes.models import PromoCode, PromoCodeUsage  # noqa: F401
+from app.modules.admin.models import ImpersonationSession  # noqa: F401
+from app.modules.admin.reports.models import ReportDelivery  # noqa: F401
+from app.modules.delivery_partner.models import DeliveryPartnerDetails  # noqa: F401
 
 
 RESTAURANT_NAME = "Hotel RP Grand & Restaurants"
