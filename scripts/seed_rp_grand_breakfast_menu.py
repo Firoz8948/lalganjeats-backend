@@ -137,27 +137,16 @@ def money(value: Decimal) -> Decimal:
     return value.quantize(MONEY, rounding=ROUND_HALF_UP)
 
 
+def normalize_name(value: str) -> str:
+    return " ".join((value or "").casefold().split())
+
+
 def find_restaurant(db) -> Restaurant:
     tenant = db.query(Tenant).filter(Tenant.slug == TENANT_SLUG).one_or_none()
     if tenant is None:
         raise RuntimeError(f"Tenant with slug '{TENANT_SLUG}' was not found.")
 
-    exact = (
-        db.query(Restaurant)
-        .filter(
-            Restaurant.tenant_id == tenant.id,
-            func.lower(Restaurant.name) == RESTAURANT_NAME.lower(),
-        )
-        .all()
-    )
-    if len(exact) == 1:
-        return exact[0]
-    if len(exact) > 1:
-        raise RuntimeError(
-            f"Multiple restaurants named '{RESTAURANT_NAME}' exist in tenant "
-            f"'{TENANT_SLUG}'. Aborting to avoid changing the wrong restaurant."
-        )
-
+    target = normalize_name(RESTAURANT_NAME)
     candidates = (
         db.query(Restaurant)
         .filter(
@@ -166,6 +155,15 @@ def find_restaurant(db) -> Restaurant:
         )
         .all()
     )
+    matches = [row for row in candidates if normalize_name(row.name) == target]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"Multiple restaurants matching '{RESTAURANT_NAME}' exist in tenant "
+            f"'{TENANT_SLUG}'. Aborting to avoid changing the wrong restaurant."
+        )
+
     names = ", ".join(f"#{row.id} {row.name!r}" for row in candidates) or "none"
     raise RuntimeError(
         f"Exact restaurant '{RESTAURANT_NAME}' was not found in tenant "
