@@ -8,10 +8,10 @@ The printed menu price is treated as the seller transfer price:
     MRP           = transfer price + 39%
 
 Run on EC2 inside the backend container:
-    docker compose exec backend python -m scripts.seed_rp_grand_menu
+    docker compose exec backend python -m scripts.seed_rp_grand_menu_another_batch
 
 Preview without changing the database:
-    docker compose exec backend python -m scripts.seed_rp_grand_menu --dry-run
+    docker compose exec backend python -m scripts.seed_rp_grand_menu_another_batch --dry-run
 """
 
 import argparse
@@ -549,10 +549,17 @@ def upsert_item(
     menu_item = matches[0] if matches else MenuItem(restaurant_id=restaurant.id)
     action = "updated" if matches else "created"
 
+    first = row.variants[0]
+    display_price = money(first.transfer_price * DISPLAY_MARKUP)
+    mrp = money(first.transfer_price * MRP_MARKUP)
+
     menu_item.category_id = category.id
     menu_item.business_subcategory_id = subcategory.id
     menu_item.name = row.name
     menu_item.description = row.description
+    menu_item.actual_price = money(first.transfer_price)
+    menu_item.price = display_price
+    menu_item.original_price = mrp
     menu_item.is_veg = True
     menu_item.is_available = True
     menu_item.is_deleted = False
@@ -577,8 +584,8 @@ def upsert_item(
     for sort_order, variant_data in enumerate(row.variants):
         label = variant_data.label
         transfer = variant_data.transfer_price
-        display_price = money(transfer * DISPLAY_MARKUP)
-        mrp = money(transfer * MRP_MARKUP)
+        variant_display = money(transfer * DISPLAY_MARKUP)
+        variant_mrp = money(transfer * MRP_MARKUP)
 
         variant = by_label.get(label.casefold())
         if variant is None:
@@ -589,8 +596,8 @@ def upsert_item(
             db.add(variant)
 
         variant.actual_price = money(transfer)
-        variant.price = display_price
-        variant.original_price = mrp
+        variant.price = variant_display
+        variant.original_price = variant_mrp
         variant.sort_order = sort_order
         variant.is_available = True
         variant.is_deleted = False
@@ -599,8 +606,8 @@ def upsert_item(
         print(
             f"{action:7} {row.name:<42} [{label:<8}] "
             f"transfer=₹{transfer:.2f} "
-            f"display=₹{display_price:.2f} "
-            f"MRP=₹{mrp:.2f} "
+            f"display=₹{variant_display:.2f} "
+            f"MRP=₹{variant_mrp:.2f} "
             f"[{subcategory.name}]"
         )
 
@@ -609,12 +616,6 @@ def upsert_item(
         if (variant.label or "").casefold() not in intended_labels:
             variant.is_available = False
             variant.is_deleted = True
-
-    # MenuItem's primary price uses the first intended transfer price.
-    first = row.variants[0]
-    menu_item.actual_price = money(first.transfer_price)
-    menu_item.price = money(first.transfer_price * DISPLAY_MARKUP)
-    menu_item.original_price = money(first.transfer_price * MRP_MARKUP)
 
     return action
 
