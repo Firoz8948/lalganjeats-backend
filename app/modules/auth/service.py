@@ -1,13 +1,18 @@
 # backend/app/modules/auth/service.py
-from datetime import datetime, timezone
-from sqlalchemy.orm import Session
+from datetime import datetime, timedelta, timezone
+
 from fastapi import HTTPException, status
-from app.modules.users.models import User
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     verify_password,
 )
+from app.modules.auth.credentials import normalize_username
 from app.modules.otp import service as otp_service
+from app.modules.users.models import User
 
 ROLE_REDIRECTS = {
     "customer":          "/",
@@ -17,6 +22,7 @@ ROLE_REDIRECTS = {
     "super_admin":       "/superadmin/dashboard",
 }
 CURRENT_LEGAL_VERSION = "2026-08-17"
+PARTNER_ROLES = frozenset({"restaurant_owner", "delivery_partner"})
 
 
 def record_legal_acceptance(
@@ -47,6 +53,30 @@ def ensure_role_can_register(role: str, existing_user: User | None) -> None:
                 "Contact the admin for listing."
             ),
         )
+
+
+def _token_expiry_for_role(role: str) -> timedelta | None:
+    if role in PARTNER_ROLES:
+        return timedelta(minutes=settings.PARTNER_ACCESS_TOKEN_EXPIRE_MINUTES)
+    return None
+
+
+def _session_payload(user: User) -> dict:
+    expires = _token_expiry_for_role(user.role)
+    token = create_access_token(
+        {"sub": str(user.id), "role": user.role},
+        expires_delta=expires,
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role,
+        "user_id": user.id,
+        "full_name": user.full_name,
+        "phone": user.phone,
+        "redirect_to": ROLE_REDIRECTS[user.role],
+        "legal_terms_version": user.legal_terms_version,
+    }
 
 
 def send_otp(phone: str, role: str, db: Session) -> dict:
@@ -108,19 +138,60 @@ def verify_otp_and_login(
     )
     db.commit()
     db.refresh(user)
+    return _session_payload(user)
 
-    token = create_access_token({"sub": str(user.id), "role": user.role})
 
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "role": user.role,
-        "user_id": user.id,
-        "full_name": user.full_name,
-        "phone": user.phone,
-        "redirect_to": ROLE_REDIRECTS[user.role],
-        "legal_terms_version": user.legal_terms_version,
-    }
+def partner_password_login(
+    username: str,
+    password: str,
+    role: str,
+    accepted_legal: bool,
+    legal_version: str,
+    db: Session,
+) -> dict:
+    if role not in PARTNER_ROLES:
+        raise HTTPException(status_code=400, detail="Invalid role for partner login")
+
+    login_id = normalize_username(username) or username.strip().lower()
+    digits = "".join(ch for ch in username if ch.isdigit())
+    phone_candidate = digits[-10:] if len(digits) >= 10 else None
+
+    identity_filters = [User.username == login_id, User.phone == login_id]
+    if phone_candidate:
+        identity_filters.append(User.phone == phone_candidate)
+
+    user = (
+        db.query(User)
+        .filter(
+            User.role == role,
+            User.is_active == True,  # noqa: E712
+            or_(*identity_filters),
+        )
+        .first()
+    )
+
+    if not user or not user.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+    if not verify_password(password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+
+    # Re-accept legal only when not already on current version
+    if user.legal_terms_version != CURRENT_LEGAL_VERSION:
+        record_legal_acceptance(
+            user,
+            accepted=accepted_legal,
+            version=legal_version,
+        )
+        db.commit()
+        db.refresh(user)
+
+    return _session_payload(user)
 
 
 # ── Admin Login (tenant) ──────────────────────────────────

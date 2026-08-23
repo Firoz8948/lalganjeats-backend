@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
 from app.core.maps import haversine_km
+from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
 from app.modules.restaurants.service_area import (
@@ -286,6 +287,12 @@ def create_restaurant(
     tenant_id: int | None = None,
 ) -> dict:
     owner = _get_or_create_owner(db, payload.owner_phone, payload.owner_name, tenant_id)
+    apply_partner_credentials(
+        db,
+        owner,
+        username=payload.owner_username,
+        password=payload.owner_password,
+    )
     category_id = payload.business_category_id
     if category_id is None:
         default_category = db.query(CatalogCategory).filter(
@@ -337,6 +344,8 @@ def _admin_row(r: Restaurant) -> dict:
         "description": r.description,
         "owner": r.owner.full_name if r.owner else None,
         "owner_phone": r.owner.phone if r.owner else None,
+        "owner_username": getattr(r.owner, "username", None) if r.owner else None,
+        "has_password": bool(getattr(r.owner, "password_hash", None)) if r.owner else False,
         "phone": r.phone,
         "address": r.address,
         "city": r.city,
@@ -391,6 +400,8 @@ def update_restaurant(
         else dict(payload)
     )
     owner_name = data.pop("owner_name", None)
+    owner_username = data.pop("owner_username", None)
+    owner_password = data.pop("owner_password", None)
     if "business_category_id" in data:
         category_id = data["business_category_id"]
         if category_id is not None and not db.query(CatalogCategory).filter(
@@ -405,6 +416,16 @@ def update_restaurant(
 
     if owner_name is not None and restaurant.owner:
         restaurant.owner.full_name = owner_name
+
+    if restaurant.owner and (
+        owner_username is not None or owner_password is not None
+    ):
+        apply_partner_credentials(
+            db,
+            restaurant.owner,
+            username=owner_username,
+            password=owner_password,
+        )
 
     if name_changed or not getattr(restaurant, "slug", None):
         assign_restaurant_slug(

@@ -10,6 +10,7 @@ from app.modules.delivery_partner.schemas import (
     DOCUMENT_TYPES,
     UPLOAD_TYPES,
     DeliveryPartnerCreate,
+    DeliveryPartnerCredentialsUpdate,
     DeliveryPartnerOut,
     DeliveryPartnerStatusUpdate,
     UploadResult,
@@ -49,6 +50,21 @@ def update_delivery_partner_status(
         current.tenant_id,
         partner_id,
         payload.is_active,
+    )
+
+
+@router.patch("/{partner_id}/credentials", response_model=DeliveryPartnerOut)
+def update_delivery_partner_credentials(
+    partner_id: int,
+    payload: DeliveryPartnerCredentialsUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return service.update_delivery_partner_credentials(
+        db,
+        current.tenant_id,
+        partner_id,
+        payload,
     )
 
 

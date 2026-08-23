@@ -10,6 +10,7 @@ CREATE TABLE users (
     full_name       VARCHAR(100),
     phone           VARCHAR(15) UNIQUE,
     email           VARCHAR(150) UNIQUE,
+    username        VARCHAR(80) UNIQUE,
     password_hash   TEXT,                    -- NULL for OTP-only users
     role            VARCHAR(20) NOT NULL     -- 'customer' | 'restaurant_owner' | 'delivery_partner' | 'admin' | 'super_admin'
                     CHECK (role IN ('customer', 'restaurant_owner', 'delivery_partner', 'admin', 'super_admin')),

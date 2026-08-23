@@ -36,6 +36,23 @@ def verify_otp(payload: schemas.VerifyOTPRequest, db: Session = Depends(get_db))
         db=db
     )
 
+
+@router.post("/partner-login", response_model=schemas.TokenResponse)
+def partner_login(
+    payload: schemas.PartnerPasswordLoginRequest,
+    db: Session = Depends(get_db),
+):
+    """Restaurant owner / delivery partner username + password login."""
+    return service.partner_password_login(
+        username=payload.username,
+        password=payload.password,
+        role=payload.role,
+        accepted_legal=payload.accepted_legal,
+        legal_version=payload.legal_version,
+        db=db,
+    )
+
+
 # ── Admin Login (Email + Password) ───────────────────────
 @router.post("/admin-login", response_model=schemas.TokenResponse)
 def admin_login(payload: schemas.AdminLoginRequest, db: Session = Depends(get_db)):

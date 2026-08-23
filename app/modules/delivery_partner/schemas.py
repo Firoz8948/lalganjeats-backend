@@ -30,6 +30,8 @@ class DeliveryPartnerCreate(BaseModel):
     account_number: str = Field(..., min_length=5, max_length=50)
     ifsc_code: str = Field(..., min_length=4, max_length=20)
     bank_name: str | None = Field(None, max_length=150)
+    username: str | None = Field(None, max_length=80)
+    password: str | None = Field(None, min_length=4, max_length=100)
 
     @field_validator("date_of_birth")
     @classmethod
@@ -71,6 +73,8 @@ class DeliveryPartnerOut(BaseModel):
     full_name: str
     phone: str
     email: str | None = None
+    username: str | None = None
+    has_password: bool = False
     is_active: bool
     profile_complete: bool
     date_of_birth: date | None = None
@@ -92,6 +96,11 @@ class DeliveryPartnerOut(BaseModel):
 
 class DeliveryPartnerStatusUpdate(BaseModel):
     is_active: bool
+
+
+class DeliveryPartnerCredentialsUpdate(BaseModel):
+    username: str | None = Field(None, max_length=80)
+    password: str | None = Field(None, min_length=4, max_length=100)
 
 
 class UploadResult(BaseModel):

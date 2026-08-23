@@ -4,8 +4,12 @@ from datetime import date
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 
+from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.delivery_partner.models import DeliveryPartnerDetails
-from app.modules.delivery_partner.schemas import DeliveryPartnerCreate
+from app.modules.delivery_partner.schemas import (
+    DeliveryPartnerCreate,
+    DeliveryPartnerCredentialsUpdate,
+)
 from app.modules.orders.models import DeliveryProfile
 from app.modules.payments.models import BankAccount
 from app.modules.users.models import User
@@ -70,6 +74,8 @@ def _serialize_admin(partner: User) -> dict:
             "full_name": partner.full_name,
             "phone": partner.phone,
             "email": partner.email,
+            "username": getattr(partner, "username", None),
+            "has_password": bool(getattr(partner, "password_hash", None)),
             "is_active": bool(partner.is_active),
             "profile_complete": False,
             "date_of_birth": None,
@@ -94,6 +100,8 @@ def _serialize_admin(partner: User) -> dict:
         "full_name": partner.full_name,
         "phone": partner.phone,
         "email": partner.email,
+        "username": getattr(partner, "username", None),
+        "has_password": bool(getattr(partner, "password_hash", None)),
         "is_active": bool(partner.is_active),
         "profile_complete": True,
         "date_of_birth": details.date_of_birth,
@@ -173,6 +181,13 @@ def create_delivery_partner(
         )
         db.add(user)
         db.flush()
+
+    apply_partner_credentials(
+        db,
+        user,
+        username=payload.username,
+        password=payload.password,
+    )
 
     bank = (
         db.query(BankAccount)
@@ -262,6 +277,32 @@ def set_delivery_partner_status(
         partner.delivery_profile.is_online = False
     db.commit()
     return {"id": partner.id, "is_active": bool(partner.is_active)}
+
+
+def update_delivery_partner_credentials(
+    db: Session,
+    tenant_id: int,
+    partner_id: int,
+    payload: DeliveryPartnerCredentialsUpdate,
+) -> dict:
+    partner = (
+        _partner_query(db, tenant_id)
+        .filter(User.id == partner_id)
+        .first()
+    )
+    if not partner:
+        raise HTTPException(404, "Delivery partner not found")
+    if payload.username is None and not (payload.password and str(payload.password).strip()):
+        raise HTTPException(400, "Provide a username and/or password")
+    apply_partner_credentials(
+        db,
+        partner,
+        username=payload.username,
+        password=payload.password,
+    )
+    db.commit()
+    db.refresh(partner)
+    return _serialize_admin(partner)
 
 
 def get_document_key(

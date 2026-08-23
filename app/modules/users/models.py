@@ -15,6 +15,8 @@ class User(Base):
     full_name     = Column(String(100))
     phone         = Column(String(15), unique=True, index=True)
     email         = Column(String(150), unique=True, index=True, nullable=True)
+    # Optional login username for restaurant_owner / delivery_partner (and admins use email)
+    username      = Column(String(80), unique=True, index=True, nullable=True)
     password_hash = Column(Text, nullable=True)
     role          = Column(String(20), nullable=False)
     # Set for tenant-scoped roles (admin, restaurant_owner, delivery_partner)

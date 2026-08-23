@@ -45,6 +45,8 @@ class RestaurantCreateRequest(BaseModel):
     banner_mobile_url: str | None = None
     owner_phone: str = Field(..., min_length=10, max_length=15)
     owner_name: str | None = None
+    owner_username: str | None = Field(None, max_length=80)
+    owner_password: str | None = Field(None, min_length=4, max_length=100)
     business_category_id: int | None = None
     is_approved: bool = True
 
@@ -66,4 +68,6 @@ class RestaurantUpdateRequest(BaseModel):
     is_approved: Optional[bool] = None
     is_active: Optional[bool] = None
     owner_name: Optional[str] = None
+    owner_username: Optional[str] = Field(None, max_length=80)
+    owner_password: Optional[str] = Field(None, min_length=4, max_length=100)
     business_category_id: Optional[int] = None
