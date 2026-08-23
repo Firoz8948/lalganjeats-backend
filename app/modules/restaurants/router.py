@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -68,22 +68,27 @@ def featured_subcategories(db: Session = Depends(get_db)):
     ]
 
 
-@router.get("/{restaurant_id}")
+@router.get("/{restaurant_key}")
 def get_restaurant(
-    restaurant_id: int,
+    restaurant_key: str,
     lat: float | None = Query(None, ge=-90, le=90),
     lng: float | None = Query(None, ge=-180, le=180),
     db: Session = Depends(get_db),
 ):
-    """Public detail — single restaurant for menu page header."""
+    """Public detail — single restaurant for menu page header (id or slug)."""
     return service.get_public_restaurant(
-        db, restaurant_id, customer_lat=lat, customer_lng=lng
+        db, restaurant_key, customer_lat=lat, customer_lng=lng
     )
 
 
-@router.get("/{restaurant_id}/menu")
-def get_restaurant_menu(restaurant_id: int, db: Session = Depends(get_db)):
-    """Public menu — available (non-deleted) items for a restaurant."""
+@router.get("/{restaurant_key}/menu")
+def get_restaurant_menu(restaurant_key: str, db: Session = Depends(get_db)):
+    """Public menu — available (non-deleted) items for a restaurant (id or slug)."""
+    restaurant = service.resolve_restaurant_key(db, restaurant_key)
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    restaurant_id = restaurant.id
+
     categories = (
         db.query(MenuCategory)
         .filter(MenuCategory.restaurant_id == restaurant_id, MenuCategory.is_active == True)

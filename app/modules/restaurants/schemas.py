@@ -6,6 +6,7 @@ from typing import Optional
 class RestaurantPublicResponse(BaseModel):
     id: int
     name: str
+    slug: str | None = None
     cuisine: str = ""
     rating: float = 4.0
     review_count: int = 0

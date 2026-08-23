@@ -67,6 +67,8 @@ class Restaurant(Base):
         index=True,
     )
     name          = Column(String(150), nullable=False)
+    # Public SEO URL segment: /restaurants/{slug}
+    slug          = Column(String(180), nullable=True, unique=True, index=True)
     description   = Column(Text)
     phone         = Column(String(15))
     address       = Column(Text)

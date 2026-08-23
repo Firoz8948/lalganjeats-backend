@@ -428,6 +428,11 @@ def update_settings(
 
     if payload.restaurant_name is not None:
         restaurant.name = payload.restaurant_name
+        from app.modules.restaurants.service import assign_restaurant_slug
+
+        assign_restaurant_slug(
+            db, restaurant, name=payload.restaurant_name, force=True
+        )
     if payload.phone is not None:
         restaurant.phone = payload.phone
     if payload.address is not None:

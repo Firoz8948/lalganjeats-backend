@@ -49,6 +49,7 @@ from app.modules.getlocation.router import router as getlocation_router
 from app.modules.orders.router import router as orders_router
 from app.modules.tracking.router import router as tracking_router
 from app.modules.websocket.router import router as websocket_router
+from app.modules.seo.router import router as seo_router
 
 # ── Create tables ──────────────────────────────────────────
 Base.metadata.create_all(bind=engine)
@@ -79,6 +80,7 @@ app.include_router(tracking_router)
 app.include_router(websocket_router)
 app.include_router(users_router)
 app.include_router(orders_router)
+app.include_router(seo_router)
 
 # Serve uploaded images in local mode (Bunny returns full CDN URLs)
 if settings.STORAGE_BACKEND == "local" and UPLOAD_ROOT.exists():

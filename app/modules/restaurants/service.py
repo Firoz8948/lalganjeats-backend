@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
@@ -15,6 +17,46 @@ from app.modules.users.models import User
 
 EMOJI_PALETTE = ["🍛", "🥘", "🍔", "🍮", "🥞", "🍗", "☕", "🥗"]
 BG_PALETTE = ["#FFF3EF", "#FFF9EF", "#F0FFF4", "#FFF0F5", "#F0F4FF", "#FFF8EF", "#F5F0FF", "#EFFFF5"]
+
+
+def slugify_restaurant_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return slug or "restaurant"
+
+
+def ensure_unique_restaurant_slug(
+    db: Session,
+    base: str,
+    *,
+    exclude_id: int | None = None,
+) -> str:
+    slug = base or "restaurant"
+    n = 1
+    while True:
+        q = db.query(Restaurant.id).filter(Restaurant.slug == slug)
+        if exclude_id is not None:
+            q = q.filter(Restaurant.id != exclude_id)
+        if not q.first():
+            return slug
+        n += 1
+        slug = f"{base}-{n}"
+
+
+def assign_restaurant_slug(
+    db: Session,
+    restaurant: Restaurant,
+    *,
+    name: str | None = None,
+    force: bool = False,
+) -> None:
+    """Set slug from name when missing, or when force=True (name changed)."""
+    source = name if name is not None else restaurant.name
+    base = slugify_restaurant_name(source)
+    if not force and restaurant.slug:
+        return
+    restaurant.slug = ensure_unique_restaurant_slug(
+        db, base, exclude_id=restaurant.id
+    )
 
 
 def _to_public(
@@ -65,6 +107,7 @@ def _to_public(
     return RestaurantPublicResponse(
         id=restaurant.id,
         name=restaurant.name,
+        slug=getattr(restaurant, "slug", None),
         cuisine=restaurant.description or "",
         is_open=restaurant.is_open,
         logo_url=restaurant.logo_url,
@@ -164,25 +207,35 @@ def list_public_restaurants(
     ]
 
 
-def get_public_restaurant(
-    db: Session,
-    restaurant_id: int,
-    customer_lat: float | None = None,
-    customer_lng: float | None = None,
-) -> dict:
-    restaurant = (
+def resolve_restaurant_key(db: Session, key: str) -> Restaurant | None:
+    """Look up by numeric id or public slug (active + approved)."""
+    key = (key or "").strip()
+    if not key:
+        return None
+    q = (
         db.query(Restaurant)
         .options(
             joinedload(Restaurant.tenant).joinedload(Tenant.zones),
             joinedload(Restaurant.tenant).joinedload(Tenant.delivery_exceptions),
+            joinedload(Restaurant.business_category),
         )
         .filter(
-            Restaurant.id == restaurant_id,
-            Restaurant.is_active == True,
-            Restaurant.is_approved == True,
+            Restaurant.is_active == True,  # noqa: E712
+            Restaurant.is_approved == True,  # noqa: E712
         )
-        .first()
     )
+    if key.isdigit():
+        return q.filter(Restaurant.id == int(key)).first()
+    return q.filter(Restaurant.slug == key).first()
+
+
+def get_public_restaurant(
+    db: Session,
+    restaurant_key: str | int,
+    customer_lat: float | None = None,
+    customer_lng: float | None = None,
+) -> dict:
+    restaurant = resolve_restaurant_key(db, str(restaurant_key))
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
     if not _restaurant_visible_for_customer(restaurant, customer_lat, customer_lng):
@@ -192,7 +245,7 @@ def get_public_restaurant(
         )
     return _to_public(
         restaurant,
-        restaurant_id,
+        restaurant.id,
         customer_lat,
         customer_lng,
     )
@@ -267,6 +320,8 @@ def create_restaurant(
         is_active=True,
     )
     db.add(restaurant)
+    db.flush()
+    assign_restaurant_slug(db, restaurant, name=payload.name, force=True)
     db.commit()
     db.refresh(restaurant)
     return _to_public(restaurant, 0)
@@ -278,6 +333,7 @@ def _admin_row(r: Restaurant) -> dict:
     return {
         "id": r.id,
         "name": r.name,
+        "slug": getattr(r, "slug", None),
         "description": r.description,
         "owner": r.owner.full_name if r.owner else None,
         "owner_phone": r.owner.phone if r.owner else None,
@@ -343,11 +399,20 @@ def update_restaurant(
         ).first():
             raise HTTPException(status_code=400, detail="Invalid business category")
 
+    name_changed = "name" in data and data["name"] != restaurant.name
     for key, value in data.items():
         setattr(restaurant, key, value)
 
     if owner_name is not None and restaurant.owner:
         restaurant.owner.full_name = owner_name
+
+    if name_changed or not getattr(restaurant, "slug", None):
+        assign_restaurant_slug(
+            db,
+            restaurant,
+            name=restaurant.name,
+            force=bool(name_changed or not getattr(restaurant, "slug", None)),
+        )
 
     db.commit()
     db.refresh(restaurant)

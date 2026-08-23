@@ -27,6 +27,7 @@ CREATE TABLE restaurants (
     id              SERIAL PRIMARY KEY,
     owner_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name            VARCHAR(150) NOT NULL,
+    slug            VARCHAR(180) UNIQUE,
     description     TEXT,
     phone           VARCHAR(15),
     address         TEXT,
