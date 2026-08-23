@@ -205,12 +205,71 @@ def verify_delivery_otp(
     if not order:
         raise HTTPException(404, "Order not found")
     otp_service.verify_delivery_otp(order, body.otp)
+    order.delivery_otp_verified_at = datetime.utcnow()
+    db.commit()
     return {"verified": True}
 
 
+class CollectionPaymentBody(BaseModel):
+    online_amount: float
+
+
+@router.post("/orders/{order_id}/collection-payment")
+def create_collection_payment(
+    order_id: int,
+    body: CollectionPaymentBody,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_delivery_partner),
+):
+    """Create a Razorpay order for the online portion of doorstep collection."""
+    from app.core.config import settings
+    from app.core.razorpay_service import create_order, razorpay_configured
+
+    if body.online_amount <= 0:
+        raise HTTPException(400, "online_amount must be greater than 0")
+    if not razorpay_configured():
+        raise HTTPException(503, "Online payments are not configured")
+
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.delivery_partner_id == current_user.id,
+        Order.status.in_(["picked_up", "on_the_way"]),
+    ).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if (order.payment_status or "").lower() == "paid":
+        raise HTTPException(400, "Order is already paid")
+
+    due = float(order.display_total or order.total_amount or 0)
+    if body.online_amount > due + 0.01:
+        raise HTTPException(400, "online_amount exceeds order total")
+
+    rz = create_order(
+        body.online_amount,
+        receipt=f"collect-{order.order_number}"[:40],
+        notes={
+            "order_id": str(order.id),
+            "purpose": "doorstep_collection",
+            "partner_id": str(current_user.id),
+        },
+    )
+    order.razorpay_order_id = rz["id"]
+    db.commit()
+    return {
+        "razorpay_order_id": rz["id"],
+        "amount": body.online_amount,
+        "currency": "INR",
+        "key_id": settings.RAZORPAY_KEY_ID,
+    }
+
+
 class CompleteBody(BaseModel):
-    collection_method: str  # cash | online
     otp: str
+    cash_amount: float = 0
+    online_amount: float = 0
+    razorpay_order_id: str | None = None
+    razorpay_payment_id: str | None = None
+    razorpay_signature: str | None = None
 
 
 @router.post("/orders/{order_id}/complete")
@@ -220,8 +279,7 @@ def complete_delivery(
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
-    if body.collection_method not in ("cash", "online"):
-        raise HTTPException(400, "collection_method must be cash or online")
+    from app.core.razorpay_service import verify_payment_signature
 
     order = db.query(Order).filter(
         Order.id == order_id,
@@ -232,11 +290,56 @@ def complete_delivery(
         raise HTTPException(404, "Order not found")
 
     otp_service.verify_delivery_otp(order, body.otp)
+    if not order.delivery_otp_verified_at:
+        order.delivery_otp_verified_at = datetime.utcnow()
+
+    already_paid = (order.payment_status or "").lower() == "paid"
+    due = round(float(order.display_total or order.total_amount or 0), 2)
+    cash = round(float(body.cash_amount or 0), 2)
+    online = round(float(body.online_amount or 0), 2)
+
+    if cash < 0 or online < 0:
+        raise HTTPException(400, "Amounts cannot be negative")
+
+    if already_paid:
+        cash, online = 0.0, 0.0
+    else:
+        if abs((cash + online) - due) > 0.05:
+            raise HTTPException(
+                400,
+                f"Cash + online must equal order total ₹{due:g}",
+            )
+        if online > 0:
+            if not (
+                body.razorpay_order_id
+                and body.razorpay_payment_id
+                and body.razorpay_signature
+            ):
+                raise HTTPException(
+                    400,
+                    "Online collection requires a successful Razorpay payment",
+                )
+            if not verify_payment_signature(
+                body.razorpay_order_id,
+                body.razorpay_payment_id,
+                body.razorpay_signature,
+            ):
+                raise HTTPException(400, "Invalid payment signature")
+            order.razorpay_order_id = body.razorpay_order_id
+            order.razorpay_payment_id = body.razorpay_payment_id
 
     order.status = "delivered"
     order.payment_status = "paid"
-    if body.collection_method == "online":
-        order.payment_method = order.payment_method or "online"
+    order.cash_collected = cash if cash > 0 else None
+    order.online_collected = online if online > 0 else None
+    if already_paid:
+        pass  # keep original payment_method
+    elif cash > 0 and online > 0:
+        order.payment_method = "split"
+    elif online > 0:
+        order.payment_method = "online"
+    else:
+        order.payment_method = "cash"
 
     payout = float(
         order.delivery_partner_earning
@@ -248,10 +351,9 @@ def complete_delivery(
 
     order.delivery_otp = None
     order.delivery_otp_expires_at = None
+    order.delivery_otp_verified_at = order.delivery_otp_verified_at or datetime.utcnow()
     db.commit()
 
-    # COD orders and online orders assigned after payment both need complete,
-    # idempotent partner ledger rows once the delivery partner is known.
     from app.modules.payments.router import process_payment_split
     process_payment_split(order.id)
 
@@ -260,8 +362,9 @@ def complete_delivery(
     return {
         "message": "Order delivered",
         "status": "delivered",
-        "collection_method": body.collection_method,
-        "online_stub": body.collection_method == "online",
+        "cash_collected": cash,
+        "online_collected": online,
+        "already_paid": already_paid,
     }
 
 
@@ -303,10 +406,12 @@ def get_earnings(
         float(o.delivery_partner_earning if o.delivery_partner_earning is not None else (o.delivery_fee or 0))
         for o in orders
     )
+    cash_total = sum(float(o.cash_collected or 0) for o in orders)
     return {
         "filter": filter,
         "total_orders": len(orders),
         "total_earned": total,
+        "cash_collected": cash_total,
         "orders": [
             {
                 "id": o.id,
@@ -317,6 +422,8 @@ def get_earnings(
                     if o.delivery_partner_earning is not None
                     else (o.delivery_fee or 0)
                 ),
+                "cash_collected": float(o.cash_collected or 0),
+                "payment_method": o.payment_method,
                 "delivered_at": o.updated_at.isoformat() if o.updated_at else None,
             }
             for o in orders

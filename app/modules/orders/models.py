@@ -21,8 +21,9 @@ class Order(Base):
     restaurant_id       = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
     delivery_partner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status              = Column(String(30), default="pending")
-    # pending → confirmed → preparing → assigned → picked_up → on_the_way → delivered | cancelled
-    payment_method      = Column(String(20), default="cash")  # cash | online
+    # pending → confirmed → preparing → ready_for_pickup → assigned
+    # → picked_up → on_the_way → delivered | cancelled
+    payment_method      = Column(String(20), default="cash")  # cash | online | upi | split
     payment_status      = Column(String(20), default="pending")
     subtotal            = Column(DECIMAL(10, 2), nullable=False)
     delivery_fee        = Column(DECIMAL(10, 2), default=0)
@@ -43,6 +44,10 @@ class Order(Base):
     notes               = Column(Text)
     delivery_otp        = Column(String(6), nullable=True)
     delivery_otp_expires_at = Column(DateTime(timezone=True), nullable=True)
+    delivery_otp_verified_at = Column(DateTime(timezone=True), nullable=True)
+    # Doorstep collection (COD / split). Prepaid orders keep these null.
+    cash_collected      = Column(DECIMAL(10, 2), nullable=True)
+    online_collected    = Column(DECIMAL(10, 2), nullable=True)
     promo_code_id       = Column(
         Integer,
         ForeignKey(

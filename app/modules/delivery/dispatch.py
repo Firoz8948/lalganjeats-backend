@@ -327,7 +327,7 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         "delivery_address": order.delivery_address,
         "customer_lat": c_lat,
         "customer_lng": c_lng,
-        "customer_total": float(order.total_amount),
+        "customer_total": float(order.display_total or order.total_amount or 0),
         "payout": payout,
         "distance_km_restaurant_to_customer": to_customer_km,
         "distance_km_to_restaurant": to_restaurant_km,
@@ -335,6 +335,13 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         "map_to_restaurant": map_to_restaurant,
         "map_to_customer": map_to_customer if order.status in ("picked_up", "on_the_way") else None,
         "payment_method": order.payment_method,
+        "payment_status": order.payment_status,
+        "otp_verified": bool(getattr(order, "delivery_otp_verified_at", None)),
+        "cash_collected": (
+            float(order.cash_collected)
+            if getattr(order, "cash_collected", None) is not None
+            else None
+        ),
         "created_at": order.created_at.isoformat() if order.created_at else None,
         "items": [
             {"name": i.name, "quantity": i.quantity, "price": float(i.actual_price or i.price)}

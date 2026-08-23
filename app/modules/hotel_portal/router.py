@@ -10,6 +10,10 @@ from app.core.database import get_db
 from app.core.security import get_restaurant_owner
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuCategory
 from app.modules.orders.models import Order
+from app.modules.orders.status_meta import (
+    HOTEL_SETTABLE_STATUSES,
+    customer_status_meta,
+)
 
 router = APIRouter(prefix="/api/v1/hotel-portal", tags=["Hotel Portal"])
 
@@ -18,15 +22,29 @@ router = APIRouter(prefix="/api/v1/hotel-portal", tags=["Hotel Portal"])
 def _serialize_order(o: Order) -> dict:
     from app.modules.delivery_partner.service import serialize_public_identity
 
+    partner = o.delivery_partner
+    partner_public = serialize_public_identity(partner)
+    bike = None
+    if partner_public:
+        bike = partner_public.get("registered_vehicle_number")
+    restaurant_name = o.restaurant.name if o.restaurant else None
+
     return {
         "id":               o.id,
         "order_number":     o.order_number,
         "status":           o.status,
+        "status_meta":      customer_status_meta(
+            o.status,
+            restaurant_name=restaurant_name,
+            delivery_partner_name=partner.full_name if partner else None,
+            bike_number=bike,
+        ),
         "total_amount":     float(o.total_amount),
         "payment_method":   o.payment_method,
+        "payment_status":   o.payment_status,
         "customer":         o.customer.full_name if o.customer else None,
         "delivery_address": o.delivery_address,
-        "delivery_partner": serialize_public_identity(o.delivery_partner),
+        "delivery_partner": partner_public,
         "created_at":       o.created_at.isoformat(),
         "items": [
             {
@@ -293,7 +311,7 @@ def get_orders(
             ])
         )
     elif status == "history":
-        query = query.filter(Order.status.in_(["delivered", "cancelled"]))
+        query = query.filter(Order.status == "delivered")
     elif status == "delivered":
         query = query.filter(Order.status == "delivered")
     elif status == "cancelled":
@@ -324,12 +342,11 @@ def update_order_status(
     if not order:
         raise HTTPException(404, "Order not found")
 
-    valid = [
-        "confirmed", "preparing", "ready_for_pickup",
-        "picked_up", "on_the_way", "delivered", "cancelled"
-    ]
-    if payload.status not in valid:
-        raise HTTPException(400, f"Invalid status. Valid: {valid}")
+    if payload.status not in HOTEL_SETTABLE_STATUSES:
+        raise HTTPException(
+            400,
+            f"Invalid status. Restaurant can set: {list(HOTEL_SETTABLE_STATUSES)}",
+        )
 
     prev = order.status
     order.status = payload.status

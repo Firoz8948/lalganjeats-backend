@@ -260,15 +260,28 @@ def get_my_orders(
     orders = query.order_by(Order.created_at.desc()).all()
 
     from app.modules.delivery_partner.service import serialize_public_identity
+    from app.modules.orders.status_meta import customer_status_meta
 
-    return [
-        {
+    result = []
+    for o in orders:
+        partner = o.delivery_partner
+        partner_public = serialize_public_identity(partner)
+        bike = None
+        if partner_public:
+            bike = partner_public.get("registered_vehicle_number")
+        result.append({
             "id":             o.id,
             "order_number":   o.order_number,
             "restaurant_id":  o.restaurant_id,
             "restaurant_name": o.restaurant.name
                               if o.restaurant else "Unknown",
             "status":         o.status,
+            "status_meta":    customer_status_meta(
+                o.status,
+                restaurant_name=o.restaurant.name if o.restaurant else None,
+                delivery_partner_name=partner.full_name if partner else None,
+                bike_number=bike,
+            ),
             "payment_method": o.payment_method,
             "payment_status": o.payment_status,
             "subtotal":       float(o.subtotal),
@@ -276,7 +289,7 @@ def get_my_orders(
             "total_amount":   float(o.total_amount),
             "distance_km":    float(o.distance_km) if o.distance_km is not None else None,
             "eta_minutes":    o.eta_minutes,
-            "delivery_partner": serialize_public_identity(o.delivery_partner),
+            "delivery_partner": partner_public,
             "items": [
                 {
                     "name":     i.name,
@@ -287,9 +300,8 @@ def get_my_orders(
                 for i in o.items
             ],
             "created_at": o.created_at.isoformat(),
-        }
-        for o in orders
-    ]
+        })
+    return result
 
 
 # ═══════════════════════════════════════════

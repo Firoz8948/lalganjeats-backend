@@ -17,6 +17,7 @@ class TrackOrderOut(BaseModel):
     order_id: int
     order_number: Optional[str] = None
     order_status: Optional[str] = None
+    status_meta: Optional[str] = None
     phase: Optional[Literal["to_restaurant", "to_customer", "delivered"]] = None
     rider: Optional[LatLng] = None
     destination: Optional[LatLng] = None

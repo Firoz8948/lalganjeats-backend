@@ -11,14 +11,17 @@ class OrderStatus(str, Enum):
     CONFIRMED        = "confirmed"
     PREPARING        = "preparing"
     READY_FOR_PICKUP = "ready_for_pickup"
+    ASSIGNED         = "assigned"
     PICKED_UP        = "picked_up"
     ON_THE_WAY       = "on_the_way"
     DELIVERED        = "delivered"
     CANCELLED        = "cancelled"
 
 class PaymentMethod(str, Enum):
-    UPI  = "upi"
-    CASH = "cash"
+    UPI    = "upi"
+    CASH   = "cash"
+    ONLINE = "online"
+    SPLIT  = "split"
 
 class PaymentStatus(str, Enum):
     PENDING  = "pending"

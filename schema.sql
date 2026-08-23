@@ -128,11 +128,11 @@ CREATE TABLE orders (
     status          VARCHAR(30) DEFAULT 'pending'
                     CHECK (status IN (
                         'pending', 'confirmed', 'preparing',
-                        'ready_for_pickup', 'picked_up',
+                        'ready_for_pickup', 'assigned', 'picked_up',
                         'on_the_way', 'delivered', 'cancelled'
                     )),
     payment_method  VARCHAR(20) DEFAULT 'cash'
-                    CHECK (payment_method IN ('cash', 'upi')),
+                    CHECK (payment_method IN ('cash', 'upi', 'online', 'split')),
     payment_status  VARCHAR(20) DEFAULT 'pending'
                     CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
     subtotal        DECIMAL(10, 2) NOT NULL,

@@ -8,8 +8,21 @@ from app.modules.users.models import User
 from app.modules.getlocation import repository as loc_repo
 from app.modules.tracking.schemas import LatLng, TrackOrderOut, TrackingPublicConfig
 from app.modules.delivery_partner.service import serialize_public_identity
+from app.modules.orders.status_meta import customer_status_meta
 
 TRACKABLE = ("assigned", "picked_up", "on_the_way", "delivered")
+
+
+def _status_meta_for(order) -> str:
+    partner = order.delivery_partner
+    public = serialize_public_identity(partner) if partner else None
+    bike = (public or {}).get("registered_vehicle_number") if public else None
+    return customer_status_meta(
+        order.status,
+        restaurant_name=order.restaurant.name if order.restaurant else None,
+        delivery_partner_name=partner.full_name if partner else None,
+        bike_number=bike,
+    )
 
 
 def _coords(profile) -> tuple[float | None, float | None]:
@@ -73,24 +86,25 @@ def get_track_snapshot(
     )
     customer = _ll(order.delivery_latitude, order.delivery_longitude)
 
+    status_meta = _status_meta_for(order)
     base = TrackOrderOut(
         available=False,
         order_id=order.id,
         order_number=order.order_number,
         order_status=order.status,
+        status_meta=status_meta,
         restaurant=restaurant,
         customer=customer,
         google_maps_api_key=maps_key,
+        message=status_meta,
     )
 
     if not order.delivery_partner_id:
-        base.message = "No delivery partner assigned yet"
         return base
 
     base.delivery_partner = serialize_public_identity(order.delivery_partner)
 
     if order.status not in TRACKABLE:
-        base.message = f"Tracking not available for status '{order.status}'"
         base.delivery_partner_id = order.delivery_partner_id
         return base
 
@@ -101,7 +115,7 @@ def get_track_snapshot(
         base.eta_minutes = 0
         base.distance_km = 0
         base.eta_label = "Delivered"
-        base.message = "Order delivered"
+        base.message = status_meta
         base.delivery_partner_id = order.delivery_partner_id
         return base
 
@@ -111,7 +125,7 @@ def get_track_snapshot(
     base.updated_at = profile.location_updated_at if profile else None
 
     if lat is None or lng is None:
-        base.message = "Delivery partner location not available yet"
+        base.message = status_meta
         return base
 
     rider = LatLng(lat=lat, lng=lng)
@@ -143,5 +157,5 @@ def get_track_snapshot(
     else:
         base.eta_label = f"{eta_label_prefix} ~{mins} min"
     base.available = True
-    base.message = "Live tracking"
+    base.message = status_meta
     return base
