@@ -16,7 +16,7 @@ from app.modules.users.models import User
 
 ROLE_REDIRECTS = {
     "customer":          "/",
-    "restaurant_owner":  "/hotel-portal",
+    "restaurant_owner":  "/hotel-portal/incoming-orders",
     "delivery_partner":  "/deliverypartner",
     "admin":             "/admin/dashboard",
     "super_admin":       "/superadmin/dashboard",

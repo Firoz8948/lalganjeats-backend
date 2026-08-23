@@ -169,6 +169,7 @@ def get_menu(
             "name":           i.name,
             "description":    i.description,
             "price":          float(i.price),
+            "actual_price":   float(i.actual_price) if i.actual_price is not None else None,
             "original_price": float(i.original_price) if i.original_price else None,
             "is_veg":         i.is_veg,
             "is_available":   i.is_available,
