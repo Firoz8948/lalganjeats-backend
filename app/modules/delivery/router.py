@@ -240,7 +240,7 @@ def create_collection_payment(
     if (order.payment_status or "").lower() == "paid":
         raise HTTPException(400, "Order is already paid")
 
-    due = float(order.display_total or order.total_amount or 0)
+    due = float(order.total_amount or 0)
     if body.online_amount > due + 0.01:
         raise HTTPException(400, "online_amount exceeds order total")
 
@@ -294,7 +294,7 @@ def complete_delivery(
         order.delivery_otp_verified_at = datetime.utcnow()
 
     already_paid = (order.payment_status or "").lower() == "paid"
-    due = round(float(order.display_total or order.total_amount or 0), 2)
+    due = round(float(order.total_amount or 0), 2)
     cash = round(float(body.cash_amount or 0), 2)
     online = round(float(body.online_amount or 0), 2)
 

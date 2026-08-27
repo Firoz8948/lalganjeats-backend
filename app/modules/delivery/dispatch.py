@@ -327,7 +327,7 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         "delivery_address": order.delivery_address,
         "customer_lat": c_lat,
         "customer_lng": c_lng,
-        "customer_total": float(order.display_total or order.total_amount or 0),
+        "customer_total": float(order.total_amount or 0),
         "payout": payout,
         "distance_km_restaurant_to_customer": to_customer_km,
         "distance_km_to_restaurant": to_restaurant_km,

@@ -1,6 +1,8 @@
 # backend/app/modules/payments/payment_split.py
+"""Order money split — delegates to payments.breakdown (single source of truth)."""
 from dataclasses import dataclass
 
+from app.modules.payments.breakdown import build_order_price_breakdown
 from app.modules.payments.models import PaymentSettings
 
 
@@ -22,6 +24,7 @@ def calculate_split(
     actual_price_total: float,
     settings: PaymentSettings,
     delivery_charge: float,
+    discount: float = 0,
 ) -> SplitResult:
     # Delivery is priced by the tenant's matching distance zone before the
     # split is calculated. Payment settings no longer define a fixed fee.
@@ -31,32 +34,31 @@ def calculate_split(
         2,
     )
 
-    # Legacy % fee is kept for older order snapshots only.
-    platform_fee = round((settings.platform_fee_percent / 100) * display_total, 2)
-    customer_pays = round(display_total + delivery_charge + platform_charge, 2)
-    hotel_earning = round(actual_price_total, 2)
-    # The matched tenant zone controls both the customer delivery charge and
-    # the delivery partner's earning. The legacy global fixed earning is no
-    # longer used for new orders.
-    delivery_earning = delivery_charge
-
-    # MRP/original price, delivery charge, and platform fee do not affect P/L.
-    # Admin keeps only what remains from the displayed food price after both
-    # partner obligations are deducted. A negative result is an admin loss.
-    # Platform charge is collected as a customer fee and counted as admin revenue.
-    admin_earning = round(
-        display_total - actual_price_total - delivery_earning + platform_charge,
+    # Legacy % fee is kept for older order snapshots / reporting only.
+    platform_fee_legacy = round(
+        (settings.platform_fee_percent / 100) * display_total,
         2,
     )
 
-    return SplitResult(
-        display_total=round(display_total, 2),
-        actual_price_total=round(actual_price_total, 2),
+    breakdown = build_order_price_breakdown(
+        display_price=display_total,
+        hotel_payout=actual_price_total,
+        platform_fee=platform_charge,
         delivery_charge=delivery_charge,
-        platform_fee=platform_fee,
-        platform_charge=platform_charge,
-        hotel_earning=hotel_earning,
-        delivery_earning=delivery_earning,
-        admin_earning=admin_earning,
-        customer_pays=customer_pays,
+        discount=discount,
+        delivery_payout=delivery_charge,
+    )
+    c = breakdown.customer
+    a = breakdown.admin
+
+    return SplitResult(
+        display_total=c.display_price,
+        actual_price_total=round(float(actual_price_total), 2),
+        delivery_charge=c.delivery_charge,
+        platform_fee=platform_fee_legacy,
+        platform_charge=c.platform_fee,
+        hotel_earning=a.hotel_payout,
+        delivery_earning=a.delivery_payout,
+        admin_earning=a.admin_profit,
+        customer_pays=c.customer_total,
     )

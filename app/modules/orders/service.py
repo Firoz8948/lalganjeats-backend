@@ -330,19 +330,12 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
             }
             raise HTTPException(400, detail=detail)
 
-        # Keep admin P/L snapshot stable; discount is absorbed by admin.
-        order.admin_earning = Decimal(
-            str(
-                round(
-                    float(order.display_total or 0)
-                    - float(order.actual_total or 0)
-                    - float(order.delivery_partner_earning or 0)
-                    + float(order.platform_fee or 0)
-                    - float(order.discount or 0),
-                    2,
-                )
-            )
-        )
+        # Discount is absorbed by admin; refresh P/L from canonical breakdown.
+        from app.modules.payments.breakdown import breakdown_from_order
+
+        bd = breakdown_from_order(order)
+        order.total_amount = Decimal(str(bd.customer.customer_total))
+        order.admin_earning = Decimal(str(bd.admin.admin_profit))
 
     db.commit()
     db.refresh(order)

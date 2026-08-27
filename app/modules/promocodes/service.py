@@ -306,14 +306,26 @@ def apply_promo_to_order(
     if free_del:
         order.delivery_fee = Decimal("0")
 
-    # Recalc total if possible
+    # Recalc total via payments.breakdown (single source of truth)
     try:
-        sub = Decimal(str(order.subtotal or 0))
-        fee = Decimal(str(order.delivery_fee or 0))
-        platform = Decimal(str(order.platform_fee or 0))
-        order.total_amount = sub + fee + platform - discount
-        if order.total_amount < 0:
-            order.total_amount = Decimal("0")
+        from decimal import Decimal as D
+
+        from app.modules.payments.breakdown import (
+            breakdown_from_order,
+            customer_price_view,
+        )
+
+        display = float(order.display_total or order.subtotal or 0)
+        cv = customer_price_view(
+            display_price=display,
+            platform_fee=float(order.platform_fee or 0),
+            delivery_charge=float(order.delivery_fee or 0),
+            discount=float(discount),
+        )
+        order.total_amount = D(str(cv.customer_total))
+        order.admin_earning = D(
+            str(breakdown_from_order(order).admin.admin_profit)
+        )
     except Exception:
         pass
 
