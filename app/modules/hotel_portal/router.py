@@ -43,7 +43,9 @@ def _serialize_order(o: Order) -> dict:
             "price":    p,
         })
 
-    seller_total = float(o.actual_total) if o.actual_total is not None else items_seller_sum
+    seller_total = items_seller_sum if items_seller_sum > 0 else (
+        float(o.actual_total) if o.actual_total is not None else float(o.total_amount)
+    )
 
     return {
         "id":               o.id,
@@ -110,11 +112,16 @@ def get_dashboard(
         Order.restaurant_id == restaurant.id,
         Order.payment_status == "paid"
     ).all()
-    total_revenue = sum(
-        float(o.actual_total) if o.actual_total is not None else sum(
-            float(i.actual_price if i.actual_price is not None else i.price) * i.quantity for i in o.items
-        ) for o in paid_orders
-    )
+    def _seller_order_total(o: Order) -> float:
+        items_sum = sum(
+            (float(i.actual_price) if i.actual_price is not None else float(i.price)) * i.quantity
+            for i in o.items
+        )
+        if items_sum > 0:
+            return items_sum
+        return float(o.actual_total) if o.actual_total is not None else float(o.total_amount or 0)
+
+    total_revenue = sum(_seller_order_total(o) for o in paid_orders)
 
     recent_orders = db.query(Order).filter(
         Order.restaurant_id == restaurant.id
@@ -417,9 +424,13 @@ def get_earnings(
     orders = query.order_by(Order.created_at.desc()).all()
 
     def _order_seller_amount(o: Order) -> float:
-        if o.actual_total is not None:
-            return float(o.actual_total)
-        return sum(float(i.actual_price if i.actual_price is not None else i.price) * i.quantity for i in o.items)
+        items_sum = sum(
+            (float(i.actual_price) if i.actual_price is not None else float(i.price)) * i.quantity
+            for i in o.items
+        )
+        if items_sum > 0:
+            return items_sum
+        return float(o.actual_total) if o.actual_total is not None else float(o.total_amount or 0)
 
     total_earned = sum(_order_seller_amount(o) for o in orders)
 
