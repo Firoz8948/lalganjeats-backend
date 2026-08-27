@@ -11,10 +11,11 @@ router = APIRouter()
 
 @router.get("/orders")
 def get_all_orders(
+    status: str | None = None,
     db: Session = Depends(get_db),
     current: User = Depends(get_admin),
 ):
-    return order_service.get_all_orders(db, current)
+    return order_service.get_all_orders(db, current, status=status)
 
 
 @router.get("/orders/{order_id}/breakdown")

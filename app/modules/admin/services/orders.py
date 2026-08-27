@@ -2,17 +2,30 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.modules.orders.models import Order
+from app.modules.orders.status_meta import ORDER_STATUSES
 from app.modules.payments.breakdown import breakdown_from_order
 from app.modules.payments.models import DeliveryEarning, RestaurantEarning
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.users.models import User
 
 
-def get_all_orders(db: Session, current: User):
+def get_all_orders(db: Session, current: User, status: str | None = None):
     query = db.query(Order)
     if current.tenant_id:
         query = query.filter(Order.tenant_id == current.tenant_id)
-    orders = query.order_by(Order.created_at.desc()).limit(100).all()
+
+    status_key = (status or "").strip().lower()
+    if status_key and status_key not in ("all", "*"):
+        if status_key in ("completed", "complete"):
+            status_key = "delivered"
+        if status_key not in ORDER_STATUSES:
+            raise HTTPException(
+                400,
+                f"Invalid status. Use one of: all, completed, {', '.join(ORDER_STATUSES)}",
+            )
+        query = query.filter(Order.status == status_key)
+
+    orders = query.order_by(Order.created_at.desc()).limit(200).all()
     # Touch settings once so defaults exist; list P/L uses breakdown_from_order.
     ensure_payment_settings(db)
     return [

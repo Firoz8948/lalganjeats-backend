@@ -183,12 +183,42 @@ def list_delivery_settlements(db: Session, current: User):
         .order_by(User.full_name)
         .all()
     )
+
+    # Doorstep cash still owed until a paid remittance lands in Revenue.
+    from app.modules.payments.models import CashRemittance
+
+    cash_q = (
+        db.query(
+            Order.delivery_partner_id,
+            func.coalesce(func.sum(Order.cash_collected), 0).label("cash_collected"),
+        )
+        .outerjoin(
+            CashRemittance,
+            Order.cash_remittance_id == CashRemittance.id,
+        )
+        .filter(
+            Order.status == "delivered",
+            Order.cash_collected.isnot(None),
+            Order.cash_collected > 0,
+            # Unremitted, or remittance not yet paid (not in Revenue yet)
+            ((Order.cash_remittance_id.is_(None)) | (CashRemittance.status != "paid")),
+        )
+    )
+    if current.tenant_id:
+        cash_q = cash_q.filter(Order.tenant_id == current.tenant_id)
+    cash_by_partner = {
+        int(partner_id): round(float(total or 0), 2)
+        for partner_id, total in cash_q.group_by(Order.delivery_partner_id).all()
+        if partner_id is not None
+    }
+
     return [
         {
             "id": row.id,
             "name": row.full_name or row.phone or f"Partner #{row.id}",
             "phone": row.phone,
             "is_active": bool(row.is_active),
+            "cash_collected": cash_by_partner.get(row.id, 0.0),
             "unsettled_amount": round(
                 float(row.unsettled_amount or 0),
                 2,
