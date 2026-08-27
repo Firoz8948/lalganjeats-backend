@@ -1,12 +1,23 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.models import Order
 from app.modules.promocodes.models import PromoCode
 from app.modules.restaurants.models import Restaurant
 from app.modules.users.models import User
+
+# Active / in-flight — exclude finished orders from Live Orders.
+LIVE_ORDER_STATUSES = (
+    "pending",
+    "confirmed",
+    "preparing",
+    "ready_for_pickup",
+    "assigned",
+    "picked_up",
+    "on_the_way",
+)
 
 
 def active_promo_filters(tenant_id: int, now: datetime):
@@ -42,6 +53,22 @@ def delivered_revenue_filters(tenant_id: int | None):
     return tuple(filters)
 
 
+def _serialize_live_order(o: Order) -> dict:
+    restaurant = o.restaurant
+    partner = o.delivery_partner
+    return {
+        "id": o.id,
+        "order_number": o.order_number,
+        "status": o.status,
+        "total_amount": float(o.total_amount or 0),
+        "created_at": o.created_at.isoformat() if o.created_at else None,
+        "restaurant_name": restaurant.name if restaurant else None,
+        "restaurant_phone": restaurant.phone if restaurant else None,
+        "delivery_partner_name": partner.full_name if partner else None,
+        "delivery_partner_phone": partner.phone if partner else None,
+    }
+
+
 def get_dashboard(db: Session, current: User):
     rest_q = db.query(Restaurant)
     orders_q = db.query(Order)
@@ -69,15 +96,19 @@ def get_dashboard(db: Session, current: User):
     total_revenue = float(revenue_row or 0)
     active_promos = count_active_promos(db, current.tenant_id)
 
-    recent_orders_q = db.query(Order)
-    if current.tenant_id:
-        recent_orders_q = recent_orders_q.filter(
-            Order.tenant_id == current.tenant_id
+    live_orders_q = (
+        db.query(Order)
+        .options(
+            joinedload(Order.restaurant),
+            joinedload(Order.delivery_partner),
         )
-    recent_orders = (
-        recent_orders_q.order_by(Order.created_at.desc()).limit(10).all()
+        .filter(Order.status.in_(LIVE_ORDER_STATUSES))
     )
+    if current.tenant_id:
+        live_orders_q = live_orders_q.filter(Order.tenant_id == current.tenant_id)
+    live_orders = live_orders_q.order_by(Order.created_at.desc()).limit(25).all()
 
+    serialized = [_serialize_live_order(o) for o in live_orders]
     return {
         "stats": {
             "total_customers": total_customers,
@@ -87,14 +118,7 @@ def get_dashboard(db: Session, current: User):
             "total_revenue": total_revenue,
             "active_promos": active_promos,
         },
-        "recent_orders": [
-            {
-                "id": o.id,
-                "order_number": o.order_number,
-                "status": o.status,
-                "total_amount": float(o.total_amount),
-                "created_at": o.created_at.isoformat(),
-            }
-            for o in recent_orders
-        ],
+        "live_orders": serialized,
+        # Backward-compatible alias for older clients
+        "recent_orders": serialized,
     }

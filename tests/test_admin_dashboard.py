@@ -23,3 +23,10 @@ def test_dashboard_revenue_counts_delivered_orders_for_tenant():
     assert filters[0].right.value == "delivered"
     assert filters[1].left.key == "tenant_id"
     assert filters[1].right.value == 7
+
+
+def test_live_orders_exclude_delivered_and_cancelled():
+    assert "delivered" not in dashboard.LIVE_ORDER_STATUSES
+    assert "cancelled" not in dashboard.LIVE_ORDER_STATUSES
+    assert "pending" in dashboard.LIVE_ORDER_STATUSES
+    assert "on_the_way" in dashboard.LIVE_ORDER_STATUSES
