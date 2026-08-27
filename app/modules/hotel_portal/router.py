@@ -31,6 +31,20 @@ def _serialize_order(o: Order) -> dict:
         bike_name = partner_public.get("bike_info")
     restaurant_name = o.restaurant.name if o.restaurant else None
 
+    # Hotel sees ONLY seller transfer prices
+    items_list = []
+    items_seller_sum = 0.0
+    for i in o.items:
+        p = float(i.actual_price) if i.actual_price is not None else float(i.price)
+        items_seller_sum += p * i.quantity
+        items_list.append({
+            "name":     i.name,
+            "quantity": i.quantity,
+            "price":    p,
+        })
+
+    seller_total = float(o.actual_total) if o.actual_total is not None else items_seller_sum
+
     return {
         "id":               o.id,
         "order_number":     o.order_number,
@@ -42,21 +56,14 @@ def _serialize_order(o: Order) -> dict:
             bike_number=bike,
             bike_name=bike_name,
         ),
-        "total_amount":     float(o.total_amount),
+        "total_amount":     seller_total,
         "payment_method":   o.payment_method,
         "payment_status":   o.payment_status,
         "customer":         o.customer.full_name if o.customer else None,
         "delivery_address": o.delivery_address,
         "delivery_partner": partner_public,
         "created_at":       o.created_at.isoformat(),
-        "items": [
-            {
-                "name":     i.name,
-                "quantity": i.quantity,
-                "price":    float(i.price),
-            }
-            for i in o.items
-        ],
+        "items":            items_list,
     }
 
 
@@ -99,11 +106,15 @@ def get_dashboard(
                         Order.restaurant_id == restaurant.id,
                         Order.status.in_(["accepted", "ready"])).count()
 
-    revenue_row = db.query(func.sum(Order.total_amount)).filter(
+    paid_orders = db.query(Order).filter(
         Order.restaurant_id == restaurant.id,
         Order.payment_status == "paid"
-    ).scalar()
-    total_revenue = float(revenue_row or 0)
+    ).all()
+    total_revenue = sum(
+        float(o.actual_total) if o.actual_total is not None else sum(
+            float(i.actual_price if i.actual_price is not None else i.price) * i.quantity for i in o.items
+        ) for o in paid_orders
+    )
 
     recent_orders = db.query(Order).filter(
         Order.restaurant_id == restaurant.id
@@ -404,7 +415,13 @@ def get_earnings(
     # "all" — no date filter
 
     orders = query.order_by(Order.created_at.desc()).all()
-    total_earned = sum(float(o.total_amount) for o in orders)
+
+    def _order_seller_amount(o: Order) -> float:
+        if o.actual_total is not None:
+            return float(o.actual_total)
+        return sum(float(i.actual_price if i.actual_price is not None else i.price) * i.quantity for i in o.items)
+
+    total_earned = sum(_order_seller_amount(o) for o in orders)
 
     return {
         "filter":       filter,
@@ -415,7 +432,7 @@ def get_earnings(
                 "id":           o.id,
                 "order_number": o.order_number,
                 "customer":     o.customer.full_name if o.customer else "—",
-                "total_amount": float(o.total_amount),
+                "total_amount": _order_seller_amount(o),
                 "delivered_at": o.updated_at.isoformat()
                                 if o.updated_at else o.created_at.isoformat(),
             }
