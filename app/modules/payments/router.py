@@ -322,7 +322,9 @@ def payu_initiate(
     if (order.payment_status or "").lower() == "paid":
         raise HTTPException(400, "Order is already paid")
 
-    amount = float(order.display_total or order.total_amount or 0)
+    # Charge what the customer owes (food + delivery + platform − discount).
+    # Do NOT use display_total — that is food subtotal only.
+    amount = float(order.total_amount or 0)
     if amount <= 0:
         raise HTTPException(400, "Invalid order amount")
 
