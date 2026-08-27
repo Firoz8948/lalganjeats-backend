@@ -527,7 +527,7 @@ def verify_payment(
 
     order.payment_status = "paid"
     order.razorpay_payment_id = body.razorpay_payment_id
-    order.status = "confirmed"
+    # Stay pending until hotel accepts (customer POV).
     db.commit()
 
     background_tasks.add_task(process_payment_split, order.id)
@@ -557,7 +557,6 @@ async def razorpay_webhook(request: Request, background_tasks: BackgroundTasks):
                 if order and order.payment_status != "paid":
                     order.payment_status = "paid"
                     order.razorpay_payment_id = payment["id"]
-                    order.status = "confirmed"
                     db.commit()
                     background_tasks.add_task(process_payment_split, order_id)
             finally:

@@ -21,8 +21,7 @@ class Order(Base):
     restaurant_id       = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
     delivery_partner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status              = Column(String(30), default="pending")
-    # pending → confirmed → preparing → ready_for_pickup → assigned
-    # → picked_up → on_the_way → delivered | cancelled
+    # pending → accepted → ready → picked_up → delivered | cancelled
     payment_method      = Column(String(20), default="cash")  # cash | online | upi | split
     payment_status      = Column(String(20), default="pending")
     subtotal            = Column(DECIMAL(10, 2), nullable=False)

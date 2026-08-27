@@ -7,15 +7,12 @@ class UserRole(str, Enum):
     ADMIN            = "admin"
 
 class OrderStatus(str, Enum):
-    PENDING          = "pending"
-    CONFIRMED        = "confirmed"
-    PREPARING        = "preparing"
-    READY_FOR_PICKUP = "ready_for_pickup"
-    ASSIGNED         = "assigned"
-    PICKED_UP        = "picked_up"
-    ON_THE_WAY       = "on_the_way"
-    DELIVERED        = "delivered"
-    CANCELLED        = "cancelled"
+    PENDING    = "pending"
+    ACCEPTED   = "accepted"
+    READY      = "ready"
+    PICKED_UP  = "picked_up"
+    DELIVERED  = "delivered"
+    CANCELLED  = "cancelled"
 
 class PaymentMethod(str, Enum):
     UPI    = "upi"

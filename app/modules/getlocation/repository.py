@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.modules.orders.models import DeliveryProfile, Order
 
 
-ACTIVE_DELIVERY_STATUSES = ("assigned", "picked_up", "on_the_way")
+ACTIVE_DELIVERY_STATUSES = ("accepted", "ready", "picked_up")
 
 
 def get_profile_by_user_id(db: Session, user_id: int) -> DeliveryProfile | None:

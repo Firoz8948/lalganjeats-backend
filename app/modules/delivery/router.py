@@ -53,7 +53,7 @@ def get_dashboard(
         db.query(Order)
         .filter(
             Order.delivery_partner_id == current_user.id,
-            Order.status.in_(["assigned", "picked_up", "on_the_way"]),
+            Order.status.in_(["accepted", "ready", "picked_up"]),
         )
         .order_by(Order.updated_at.desc())
         .first()
@@ -139,10 +139,13 @@ def mark_picked_up(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status == "assigned",
+        Order.status == "ready",
     ).first()
     if not order:
-        raise HTTPException(404, "Order not found or not assigned to you")
+        raise HTTPException(
+            404,
+            "Order not found, not assigned to you, or restaurant has not marked Ready yet",
+        )
     order.status = "picked_up"
     db.commit()
     dp_webhook.on_picked_up(order, current_user)
@@ -158,6 +161,7 @@ def mark_on_the_way(
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
+    """Legacy no-op: picked_up already means on the way for the customer."""
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
@@ -165,8 +169,6 @@ def mark_on_the_way(
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
-    order.status = "on_the_way"
-    db.commit()
     return {"status": order.status}
 
 
@@ -179,7 +181,7 @@ def send_delivery_otp(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status.in_(["picked_up", "on_the_way"]),
+        Order.status == "picked_up",
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
@@ -200,7 +202,7 @@ def verify_delivery_otp(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status.in_(["picked_up", "on_the_way"]),
+        Order.status == "picked_up",
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
@@ -233,7 +235,7 @@ def create_collection_payment(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status.in_(["picked_up", "on_the_way"]),
+        Order.status == "picked_up",
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
@@ -284,7 +286,7 @@ def complete_delivery(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status.in_(["picked_up", "on_the_way"]),
+        Order.status == "picked_up",
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
@@ -376,7 +378,7 @@ def list_my_orders(
 ):
     q = db.query(Order).filter(Order.delivery_partner_id == current_user.id)
     if filter == "active":
-        q = q.filter(Order.status.in_(["assigned", "picked_up", "on_the_way"]))
+        q = q.filter(Order.status.in_(["accepted", "ready", "picked_up"]))
     elif filter == "delivered":
         q = q.filter(Order.status == "delivered")
     orders = q.order_by(Order.created_at.desc()).limit(100).all()

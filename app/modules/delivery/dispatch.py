@@ -84,7 +84,7 @@ def _dispatch_loop(order_id: int) -> None:
             return
         if order.delivery_partner_id:
             return
-        if order.status not in ("confirmed", "preparing", "ready_for_pickup"):
+        if order.status not in ("accepted", "ready"):
             return
 
         partners = ranked_partners(db, order)
@@ -97,7 +97,11 @@ def _dispatch_loop(order_id: int) -> None:
 
         while True:
             db.refresh(order)
-            if order.delivery_partner_id or order.status in ("cancelled", "delivered", "picked_up", "on_the_way", "assigned"):
+            if order.delivery_partner_id or order.status in (
+                "cancelled",
+                "delivered",
+                "picked_up",
+            ):
                 return
 
             # Expire stale open offers past wait window (only the latest ring edge)
@@ -216,7 +220,7 @@ def accept_offer(db: Session, order_id: int, partner: User) -> Order:
     if order.delivery_partner_id:
         from fastapi import HTTPException
         raise HTTPException(409, "Order already assigned")
-    if order.status not in ("confirmed", "preparing", "ready_for_pickup"):
+    if order.status not in ("accepted", "ready"):
         from fastapi import HTTPException
         raise HTTPException(400, "Order not available for delivery")
 
@@ -254,7 +258,7 @@ def accept_offer(db: Session, order_id: int, partner: User) -> Order:
     )
 
     order.delivery_partner_id = partner.id
-    order.status = "assigned"
+    # Keep customer-facing status (accepted/ready); assignment is via partner id.
     db.commit()
     db.refresh(order)
 
@@ -333,7 +337,7 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         "distance_km_to_restaurant": to_restaurant_km,
         "eta_minutes": order.eta_minutes,
         "map_to_restaurant": map_to_restaurant,
-        "map_to_customer": map_to_customer if order.status in ("picked_up", "on_the_way") else None,
+        "map_to_customer": map_to_customer if order.status == "picked_up" else None,
         "payment_method": order.payment_method,
         "payment_status": order.payment_status,
         "otp_verified": bool(getattr(order, "delivery_otp_verified_at", None)),

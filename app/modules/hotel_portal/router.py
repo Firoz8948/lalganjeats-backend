@@ -25,8 +25,10 @@ def _serialize_order(o: Order) -> dict:
     partner = o.delivery_partner
     partner_public = serialize_public_identity(partner)
     bike = None
+    bike_name = None
     if partner_public:
         bike = partner_public.get("registered_vehicle_number")
+        bike_name = partner_public.get("bike_info")
     restaurant_name = o.restaurant.name if o.restaurant else None
 
     return {
@@ -38,6 +40,7 @@ def _serialize_order(o: Order) -> dict:
             restaurant_name=restaurant_name,
             delivery_partner_name=partner.full_name if partner else None,
             bike_number=bike,
+            bike_name=bike_name,
         ),
         "total_amount":     float(o.total_amount),
         "payment_method":   o.payment_method,
@@ -94,8 +97,7 @@ def get_dashboard(
                     ).count()
     active_orders  = db.query(Order).filter(
                         Order.restaurant_id == restaurant.id,
-                        Order.status.in_(["confirmed", "preparing",
-                                          "ready_for_pickup"])).count()
+                        Order.status.in_(["accepted", "ready"])).count()
 
     revenue_row = db.query(func.sum(Order.total_amount)).filter(
         Order.restaurant_id == restaurant.id,
@@ -310,10 +312,7 @@ def get_orders(
 
     if status == "active":
         query = query.filter(
-            Order.status.in_([
-                "confirmed", "preparing", "ready_for_pickup",
-                "assigned", "picked_up", "on_the_way",
-            ])
+            Order.status.in_(["accepted", "ready", "picked_up"])
         )
     elif status == "history":
         query = query.filter(Order.status == "delivered")
@@ -360,11 +359,17 @@ def update_order_status(
         )
 
     prev = order.status
+
+    if payload.status == "accepted" and prev != "pending":
+        raise HTTPException(400, "Only pending orders can be accepted")
+    if payload.status == "ready" and prev not in ("accepted", "ready"):
+        raise HTTPException(400, "Order must be accepted before marking ready")
+
     order.status = payload.status
     db.commit()
 
-    # Hotel accept → notify customer path is status-only; start DP cascade
-    if payload.status == "confirmed" and prev == "pending":
+    # Hotel accept → start nearest delivery-partner cascade
+    if payload.status == "accepted" and prev == "pending":
         from app.modules.delivery.dispatch import start_dispatch
         start_dispatch(order.id)
 

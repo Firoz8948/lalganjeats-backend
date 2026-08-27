@@ -10,18 +10,20 @@ from app.modules.tracking.schemas import LatLng, TrackOrderOut, TrackingPublicCo
 from app.modules.delivery_partner.service import serialize_public_identity
 from app.modules.orders.status_meta import customer_status_meta
 
-TRACKABLE = ("assigned", "picked_up", "on_the_way", "delivered")
+TRACKABLE = ("accepted", "ready", "picked_up", "delivered")
 
 
 def _status_meta_for(order) -> str:
     partner = order.delivery_partner
     public = serialize_public_identity(partner) if partner else None
     bike = (public or {}).get("registered_vehicle_number") if public else None
+    bike_name = (public or {}).get("bike_info") if public else None
     return customer_status_meta(
         order.status,
         restaurant_name=order.restaurant.name if order.restaurant else None,
         delivery_partner_name=partner.full_name if partner else None,
         bike_number=bike,
+        bike_name=bike_name,
     )
 
 
@@ -131,7 +133,7 @@ def get_track_snapshot(
     rider = LatLng(lat=lat, lng=lng)
     base.rider = rider
 
-    if order.status == "assigned":
+    if order.status in ("accepted", "ready") and order.delivery_partner_id:
         phase = "to_restaurant"
         dest = restaurant
         eta_label_prefix = "Rider reaching restaurant in"

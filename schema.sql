@@ -127,9 +127,8 @@ CREATE TABLE orders (
     address_id      INTEGER REFERENCES addresses(id),
     status          VARCHAR(30) DEFAULT 'pending'
                     CHECK (status IN (
-                        'pending', 'confirmed', 'preparing',
-                        'ready_for_pickup', 'assigned', 'picked_up',
-                        'on_the_way', 'delivered', 'cancelled'
+                        'pending', 'accepted', 'ready',
+                        'picked_up', 'delivered', 'cancelled'
                     )),
     payment_method  VARCHAR(20) DEFAULT 'cash'
                     CHECK (payment_method IN ('cash', 'upi', 'online', 'split')),

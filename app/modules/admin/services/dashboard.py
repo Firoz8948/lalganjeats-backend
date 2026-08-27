@@ -4,20 +4,10 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.models import Order
+from app.modules.orders.status_meta import LIVE_ORDER_STATUSES
 from app.modules.promocodes.models import PromoCode
 from app.modules.restaurants.models import Restaurant
 from app.modules.users.models import User
-
-# Active / in-flight — exclude finished orders from Live Orders.
-LIVE_ORDER_STATUSES = (
-    "pending",
-    "confirmed",
-    "preparing",
-    "ready_for_pickup",
-    "assigned",
-    "picked_up",
-    "on_the_way",
-)
 
 
 def active_promo_filters(tenant_id: int, now: datetime):

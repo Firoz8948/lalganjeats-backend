@@ -247,9 +247,7 @@ def get_my_orders(
     if filter == "active":
         query = query.filter(
             Order.status.in_([
-                "pending", "confirmed",
-                "preparing", "ready_for_pickup",
-                "assigned", "picked_up", "on_the_way"
+                "pending", "accepted", "ready", "picked_up",
             ])
         )
     elif filter == "completed":
@@ -267,8 +265,10 @@ def get_my_orders(
         partner = o.delivery_partner
         partner_public = serialize_public_identity(partner)
         bike = None
+        bike_name = None
         if partner_public:
             bike = partner_public.get("registered_vehicle_number")
+            bike_name = partner_public.get("bike_info")
         result.append({
             "id":             o.id,
             "order_number":   o.order_number,
@@ -281,6 +281,7 @@ def get_my_orders(
                 restaurant_name=o.restaurant.name if o.restaurant else None,
                 delivery_partner_name=partner.full_name if partner else None,
                 bike_number=bike,
+                bike_name=bike_name,
             ),
             "payment_method": o.payment_method,
             "payment_status": o.payment_status,

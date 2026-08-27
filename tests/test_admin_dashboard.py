@@ -29,4 +29,6 @@ def test_live_orders_exclude_delivered_and_cancelled():
     assert "delivered" not in dashboard.LIVE_ORDER_STATUSES
     assert "cancelled" not in dashboard.LIVE_ORDER_STATUSES
     assert "pending" in dashboard.LIVE_ORDER_STATUSES
-    assert "on_the_way" in dashboard.LIVE_ORDER_STATUSES
+    assert "accepted" in dashboard.LIVE_ORDER_STATUSES
+    assert "picked_up" in dashboard.LIVE_ORDER_STATUSES
+    assert "on_the_way" not in dashboard.LIVE_ORDER_STATUSES
