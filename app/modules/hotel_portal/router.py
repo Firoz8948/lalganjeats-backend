@@ -108,9 +108,9 @@ def get_dashboard(
                         Order.restaurant_id == restaurant.id,
                         Order.status.in_(["accepted", "ready"])).count()
 
-    paid_orders = db.query(Order).filter(
+    picked_up_or_delivered_orders = db.query(Order).filter(
         Order.restaurant_id == restaurant.id,
-        Order.payment_status == "paid"
+        Order.status.in_(["picked_up", "delivered"])
     ).all()
     def _seller_order_total(o: Order) -> float:
         items_sum = sum(
@@ -121,7 +121,7 @@ def get_dashboard(
             return items_sum
         return float(o.actual_total) if o.actual_total is not None else float(o.total_amount or 0)
 
-    total_revenue = sum(_seller_order_total(o) for o in paid_orders)
+    total_revenue = sum(_seller_order_total(o) for o in picked_up_or_delivered_orders)
 
     recent_orders = db.query(Order).filter(
         Order.restaurant_id == restaurant.id
@@ -405,7 +405,7 @@ def get_earnings(
 
     query = db.query(Order).filter(
         Order.restaurant_id == restaurant.id,
-        Order.status == "delivered"
+        Order.status.in_(["picked_up", "delivered"])
     )
 
     now = datetime.now(timezone.utc)
@@ -433,17 +433,28 @@ def get_earnings(
         return float(o.actual_total) if o.actual_total is not None else float(o.total_amount or 0)
 
     total_earned = sum(_order_seller_amount(o) for o in orders)
+    unsettled_amount = sum(
+        _order_seller_amount(o) for o in orders
+        if not (o.restaurant_earning and o.restaurant_earning.transfer_status in ("completed", "settled"))
+    )
+    settled_amount = sum(
+        _order_seller_amount(o) for o in orders
+        if (o.restaurant_earning and o.restaurant_earning.transfer_status in ("completed", "settled"))
+    )
 
     return {
-        "filter":       filter,
-        "total_orders": len(orders),
-        "total_earned": total_earned,
+        "filter":           filter,
+        "total_orders":     len(orders),
+        "total_earned":     total_earned,
+        "unsettled_amount": unsettled_amount,
+        "settled_amount":   settled_amount,
         "orders": [
             {
                 "id":           o.id,
                 "order_number": o.order_number,
                 "customer":     o.customer.full_name if o.customer else "—",
                 "total_amount": _order_seller_amount(o),
+                "is_settled":   bool(o.restaurant_earning and o.restaurant_earning.transfer_status in ("completed", "settled")),
                 "delivered_at": o.updated_at.isoformat()
                                 if o.updated_at else o.created_at.isoformat(),
             }
