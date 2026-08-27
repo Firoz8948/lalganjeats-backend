@@ -24,7 +24,7 @@ from app.modules.orders.models import Order, OrderItem, DeliveryProfile, Deliver
 from app.modules.banners.models import HomeBannerSlide
 from app.modules.payments.models import (
     PaymentSettings, RestaurantEarning, DeliveryEarning,
-    Withdrawal, BankAccount,
+    Withdrawal, BankAccount, CashRemittance,
 )
 from app.modules.promocodes.models import PromoCode, PromoCodeUsage  # noqa: F401
 from app.modules.admin.models import ImpersonationSession  # noqa: F401

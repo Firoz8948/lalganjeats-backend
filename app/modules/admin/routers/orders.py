@@ -25,9 +25,16 @@ def get_order_breakdown(
 ):
     """
     Money split for an order:
-    - order_price: customer food total (display)
-    - hotel_price: restaurant / hotel portal earning
-    - delivery_price: delivery partner earning
-    - platform_charge: remaining admin / platform earning
+    - customer view: display + platform + delivery − discount
+    - admin view: customer total − hotel − delivery
     """
     return order_service.get_order_breakdown(db, current, order_id)
+
+
+@router.get("/payments/received")
+def get_payments_received(
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    """Orders where payment was successfully received (prepaid / collected)."""
+    return order_service.get_payments_received(db, current)

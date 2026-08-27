@@ -372,6 +372,9 @@ def _mark_order_paid_from_payu(db: Session, params: dict) -> Order | None:
     from app.core import sms as sms_mod
     from app.core.payu_service import verify_response_hash
 
+    if str(params.get("udf3") or "") == "cash_remit":
+        return None
+
     if not verify_response_hash(params):
         logger.warning("PayU hash mismatch txnid=%s", params.get("txnid"))
         return None
@@ -423,9 +426,24 @@ async def payu_success(
 ):
     from fastapi.responses import RedirectResponse
 
+    from app.modules.payments.cash_remittance import mark_remittance_paid
+
     params = _payu_form_dict(await request.form())
-    order = _mark_order_paid_from_payu(db, params)
     front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
+
+    if str(params.get("udf3") or "") == "cash_remit":
+        remit = mark_remittance_paid(db, params)
+        if remit:
+            return RedirectResponse(
+                f"{front}/deliverypartner/earnings?remit=success&id={remit.id}",
+                status_code=303,
+            )
+        return RedirectResponse(
+            f"{front}/deliverypartner/earnings?remit=failed",
+            status_code=303,
+        )
+
+    order = _mark_order_paid_from_payu(db, params)
     if order:
         background_tasks.add_task(process_payment_split, order.id)
         return RedirectResponse(
@@ -446,10 +464,29 @@ async def payu_failure(
 ):
     from fastapi.responses import RedirectResponse
 
+    from app.modules.payments.cash_remittance import release_pending_remittance_orders
+    from app.modules.payments.models import CashRemittance
+
     params = _payu_form_dict(await request.form())
+    front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
+
+    if str(params.get("udf3") or "") == "cash_remit":
+        remit_id = None
+        try:
+            remit_id = int(params.get("udf1") or 0) or None
+        except (TypeError, ValueError):
+            remit_id = None
+        if remit_id:
+            remit = db.query(CashRemittance).filter(CashRemittance.id == remit_id).first()
+            if remit:
+                release_pending_remittance_orders(db, remit)
+        return RedirectResponse(
+            f"{front}/deliverypartner/earnings?remit=failed",
+            status_code=303,
+        )
+
     txnid = str(params.get("txnid") or "")
     order_number = str(params.get("udf2") or "")
-    front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
     q = "status=failed"
     if order_number:
         q += f"&order={order_number}"

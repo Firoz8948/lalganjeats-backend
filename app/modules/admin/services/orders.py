@@ -47,6 +47,13 @@ def get_all_orders(db: Session, current: User):
     ]
 
 
+def get_payments_received(db: Session, current: User):
+    """Revenue ledger: money received by the platform."""
+    from app.modules.payments.revenue import build_revenue_ledger
+
+    return build_revenue_ledger(db, current)
+
+
 def get_order_breakdown(db: Session, current: User, order_id: int):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:

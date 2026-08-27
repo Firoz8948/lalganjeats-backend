@@ -91,3 +91,26 @@ class BankAccount(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="bank_accounts")
+
+
+class CashRemittance(Base):
+    """Delivery partner remits doorstep cash to the platform via PayU."""
+
+    __tablename__ = "cash_remittances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    delivery_partner_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    tenant_id = Column(
+        Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True
+    )
+    amount = Column(Float, nullable=False)
+    status = Column(String(20), default="pending", nullable=False, index=True)
+    payu_txnid = Column(String(100), nullable=True, index=True)
+    payu_mihpayid = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+
+    delivery_partner = relationship("User", foreign_keys=[delivery_partner_id])
+    orders = relationship("Order", back_populates="cash_remittance")

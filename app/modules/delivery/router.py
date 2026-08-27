@@ -429,3 +429,23 @@ def get_earnings(
             for o in orders
         ],
     }
+
+
+@router.get("/cash-on-hand")
+def get_cash_on_hand(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_delivery_partner),
+):
+    from app.modules.payments.cash_remittance import cash_on_hand
+
+    return cash_on_hand(db, current_user)
+
+
+@router.post("/cash-remit/initiate")
+def initiate_cash_remit(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_delivery_partner),
+):
+    from app.modules.payments.cash_remittance import initiate_cash_remittance
+
+    return initiate_cash_remittance(db, current_user)

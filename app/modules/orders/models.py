@@ -50,6 +50,12 @@ class Order(Base):
     # Doorstep collection (COD / split). Prepaid orders keep these null.
     cash_collected      = Column(DECIMAL(10, 2), nullable=True)
     online_collected    = Column(DECIMAL(10, 2), nullable=True)
+    cash_remittance_id  = Column(
+        Integer,
+        ForeignKey("cash_remittances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     promo_code_id       = Column(
         Integer,
         ForeignKey(
@@ -79,6 +85,9 @@ class Order(Base):
     )
     promo_usage = relationship(
         "PromoCodeUsage", back_populates="order", uselist=False
+    )
+    cash_remittance = relationship(
+        "CashRemittance", back_populates="orders"
     )
     delivery_offers = relationship(
         "DeliveryOffer", back_populates="order", cascade="all, delete-orphan"
