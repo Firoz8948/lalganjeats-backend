@@ -79,9 +79,30 @@ def _session_payload(user: User) -> dict:
     }
 
 
+def find_user_by_phone(phone: str, role: str, db: Session) -> User | None:
+    """Finds user by User.phone, or via Restaurant.phone if role is restaurant_owner."""
+    user = db.query(User).filter(User.phone == phone).first()
+    if user:
+        return user
+
+    if role == "restaurant_owner":
+        from app.modules.restaurants.models import Restaurant
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        phone_candidate = digits[-10:] if len(digits) >= 10 else phone
+        restaurant = (
+            db.query(Restaurant)
+            .filter(or_(Restaurant.phone == phone, Restaurant.phone == phone_candidate))
+            .first()
+        )
+        if restaurant and restaurant.owner:
+            return restaurant.owner
+
+    return None
+
+
 def send_otp(phone: str, role: str, db: Session) -> dict:
     """Login OTP — delegated to otp module."""
-    existing_user = db.query(User).filter(User.phone == phone).first()
+    existing_user = find_user_by_phone(phone, role, db)
     ensure_role_can_register(role, existing_user)
     if existing_user and existing_user.role != role:
         raise HTTPException(
@@ -107,7 +128,7 @@ def verify_otp_and_login(
 ) -> dict:
     otp_service.verify_login_otp(phone, otp_code, db)
 
-    user = db.query(User).filter(User.phone == phone).first()
+    user = find_user_by_phone(phone, role, db)
     ensure_role_can_register(role, user)
 
     if user:
@@ -169,6 +190,15 @@ def partner_password_login(
         )
         .first()
     )
+
+    if not user and role == "restaurant_owner":
+        from app.modules.restaurants.models import Restaurant
+        rest_filters = [Restaurant.phone == login_id]
+        if phone_candidate:
+            rest_filters.append(Restaurant.phone == phone_candidate)
+        restaurant = db.query(Restaurant).filter(or_(*rest_filters)).first()
+        if restaurant and restaurant.owner and restaurant.owner.is_active:
+            user = restaurant.owner
 
     if not user or not user.password_hash:
         raise HTTPException(
