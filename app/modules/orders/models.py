@@ -36,6 +36,8 @@ class Order(Base):
     delivery_partner_earning = Column(DECIMAL(10, 2), nullable=True)
     razorpay_order_id   = Column(String(100), nullable=True)
     razorpay_payment_id = Column(String(100), nullable=True)
+    payu_txnid          = Column(String(100), nullable=True, index=True)
+    payu_mihpayid       = Column(String(100), nullable=True)
     delivery_address    = Column(Text)
     delivery_latitude   = Column(Numeric(10, 7), nullable=True)
     delivery_longitude  = Column(Numeric(10, 7), nullable=True)

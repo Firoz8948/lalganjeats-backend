@@ -34,4 +34,4 @@ class PlaceOrderResponse(BaseModel):
     platform_charge: float = 0
     distance_km: Optional[float] = None
     eta_minutes: Optional[int] = None
-    online_payment_stub: Optional[dict] = None
+    needs_payment: bool = False

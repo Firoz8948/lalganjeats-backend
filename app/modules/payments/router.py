@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -287,6 +288,182 @@ def create_razorpay_order(
         "currency": "INR",
         "key_id": settings.RAZORPAY_KEY_ID,
     }
+
+
+class PayUInitiateBody(BaseModel):
+    order_id: int
+
+
+@router.post("/payu/initiate")
+def payu_initiate(
+    body: PayUInitiateBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return PayU hosted-checkout form fields for an unpaid prepaid order."""
+    from uuid import uuid4
+
+    from app.core.payu_service import (
+        build_checkout_payload,
+        payu_configured,
+        payu_payment_url,
+    )
+
+    if not payu_configured():
+        raise HTTPException(503, "PayU is not configured")
+
+    order = db.query(Order).filter(Order.id == body.order_id).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.customer_id != current_user.id:
+        raise HTTPException(403, "Not your order")
+    if order.payment_method != "online":
+        raise HTTPException(400, "Order is not a prepaid online order")
+    if (order.payment_status or "").lower() == "paid":
+        raise HTTPException(400, "Order is already paid")
+
+    amount = float(order.display_total or order.total_amount or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Invalid order amount")
+
+    txnid = (order.payu_txnid or "").strip()
+    if not txnid:
+        txnid = f"LE{order.id}{uuid4().hex[:10]}".upper()[:40]
+        order.payu_txnid = txnid
+        db.commit()
+
+    api_base = (settings.API_PUBLIC_URL or "").rstrip("/")
+    if not api_base:
+        raise HTTPException(503, "API_PUBLIC_URL is not configured")
+
+    customer = order.customer
+    firstname = (customer.full_name if customer else None) or "Customer"
+    email = (customer.email if customer else None) or "noreply@lalganjeats.com"
+    phone = (customer.phone if customer else None) or ""
+
+    fields = build_checkout_payload(
+        txnid=txnid,
+        amount=amount,
+        productinfo=f"LalganjEats order {order.order_number}",
+        firstname=firstname,
+        email=email,
+        phone=phone,
+        surl=f"{api_base}/api/v1/payment/payu/success",
+        furl=f"{api_base}/api/v1/payment/payu/failure",
+        udf1=str(order.id),
+        udf2=order.order_number,
+    )
+    return {
+        "payment_url": payu_payment_url(),
+        "fields": fields,
+        "order_id": order.id,
+        "order_number": order.order_number,
+        "amount": amount,
+    }
+
+
+def _payu_form_dict(form) -> dict:
+    return {k: str(v) for k, v in form.items()}
+
+
+def _mark_order_paid_from_payu(db: Session, params: dict) -> Order | None:
+    from app.core import sms as sms_mod
+    from app.core.payu_service import verify_response_hash
+
+    if not verify_response_hash(params):
+        logger.warning("PayU hash mismatch txnid=%s", params.get("txnid"))
+        return None
+
+    status = str(params.get("status") or "").lower()
+    if status not in ("success", "captured"):
+        return None
+
+    txnid = str(params.get("txnid") or "")
+    order_id = None
+    try:
+        order_id = int(params.get("udf1") or 0) or None
+    except (TypeError, ValueError):
+        order_id = None
+
+    order = None
+    if order_id:
+        order = db.query(Order).filter(Order.id == order_id).first()
+    if not order and txnid:
+        order = db.query(Order).filter(Order.payu_txnid == txnid).first()
+    if not order:
+        return None
+
+    if (order.payment_status or "").lower() == "paid":
+        return order
+
+    order.payment_status = "paid"
+    order.payment_method = "online"
+    order.payu_txnid = txnid or order.payu_txnid
+    order.payu_mihpayid = str(params.get("mihpayid") or "") or order.payu_mihpayid
+    db.commit()
+
+    restaurant = order.restaurant
+    if restaurant:
+        hotel_phone = restaurant.phone or (
+            restaurant.owner.phone if getattr(restaurant, "owner", None) else None
+        )
+        if hotel_phone:
+            sms_mod.send_order_alert(hotel_phone, order.order_number)
+
+    return order
+
+
+@router.post("/payu/success")
+async def payu_success(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import RedirectResponse
+
+    params = _payu_form_dict(await request.form())
+    order = _mark_order_paid_from_payu(db, params)
+    front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
+    if order:
+        background_tasks.add_task(process_payment_split, order.id)
+        return RedirectResponse(
+            f"{front}/checkout/payment-result?status=success"
+            f"&order={order.order_number}&id={order.id}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"{front}/checkout/payment-result?status=failed&reason=verify",
+        status_code=303,
+    )
+
+
+@router.post("/payu/failure")
+async def payu_failure(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import RedirectResponse
+
+    params = _payu_form_dict(await request.form())
+    txnid = str(params.get("txnid") or "")
+    order_number = str(params.get("udf2") or "")
+    front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
+    q = "status=failed"
+    if order_number:
+        q += f"&order={order_number}"
+    if txnid:
+        q += f"&txnid={txnid}"
+    return RedirectResponse(f"{front}/checkout/payment-result?{q}", status_code=303)
+
+
+@router.get("/payu/success")
+@router.get("/payu/failure")
+def payu_browser_get():
+    """PayU sometimes hits GET; send users to the result page."""
+    from fastapi.responses import RedirectResponse
+
+    front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
+    return RedirectResponse(f"{front}/checkout/payment-result?status=unknown", status_code=303)
 
 
 @router.post("/verify")

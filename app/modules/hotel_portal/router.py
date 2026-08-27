@@ -1,7 +1,7 @@
 # backend/app/modules/hotel_portal/router.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from pydantic import BaseModel
 from typing import Optional, List
 from decimal import Decimal
@@ -86,7 +86,12 @@ def get_dashboard(
                         Order.restaurant_id == restaurant.id).count()
     pending_orders = db.query(Order).filter(
                         Order.restaurant_id == restaurant.id,
-                        Order.status == "pending").count()
+                        Order.status == "pending",
+                        or_(
+                            Order.payment_method != "online",
+                            Order.payment_status == "paid",
+                        ),
+                    ).count()
     active_orders  = db.query(Order).filter(
                         Order.restaurant_id == restaurant.id,
                         Order.status.in_(["confirmed", "preparing",
@@ -317,7 +322,13 @@ def get_orders(
     elif status == "cancelled":
         query = query.filter(Order.status == "cancelled")
     elif status == "pending":
-        query = query.filter(Order.status == "pending")
+        query = query.filter(
+            Order.status == "pending",
+            or_(
+                Order.payment_method != "online",
+                Order.payment_status == "paid",
+            ),
+        )
 
     orders = query.order_by(Order.created_at.desc()).all()
     return [_serialize_order(o) for o in orders]

@@ -27,6 +27,17 @@ class Settings(BaseSettings):
     RAZORPAY_WEBHOOK_SECRET: str = ""
     RAZORPAY_ACCOUNT_NUMBER: str = ""
 
+    # PayU India (prepaid checkout). Salt must never be exposed to the frontend.
+    # Merchant Key + Salt v1 power hosted/_payment. Client ID/Secret are optional
+    # (PayU Biz / OAuth APIs) — store if your dashboard shows them.
+    PAYU_MERCHANT_KEY: str = ""
+    PAYU_MERCHANT_SALT: str = ""
+    PAYU_CLIENT_ID: str = ""
+    PAYU_CLIENT_SECRET: str = ""
+    PAYU_MODE: str = "test"  # test | live
+    # Public API origin for PayU surl/furl callbacks (no trailing slash)
+    API_PUBLIC_URL: str = "http://localhost:8000"
+
     RENFLAIR_API_KEY: str = ""
     GOOGLE_MAPS_API_KEY: str = ""
     SMS_BRAND_NAME: str = "LalganjEats"

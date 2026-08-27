@@ -255,14 +255,13 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         distance_km, eta_minutes = estimate_customer_eta_minutes(r_lat, r_lng, lat, lng)
 
     payment_status = "pending"
-    online_stub = None
     if payload.payment_method == "online":
-        payment_status = "paid"
-        online_stub = {
-            "stub": True,
-            "message": "Online payment stub — treated as paid for development",
-            "provider": "stub",
-        }
+        from app.core.payu_service import payu_configured
+        if not payu_configured():
+            raise HTTPException(
+                503,
+                "Online payments are not configured. Please use cash on delivery.",
+            )
 
     order = Order(
         order_number=_next_order_number(db),
@@ -348,11 +347,13 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     db.commit()
     db.refresh(order)
 
-    hotel_phone = restaurant.phone or (
-        restaurant.owner.phone if getattr(restaurant, "owner", None) else None
-    )
-    if hotel_phone:
-        sms.send_order_alert(hotel_phone, order.order_number)
+    # Notify hotel only when payment is already settled (COD) or not required.
+    if order.payment_method != "online" or order.payment_status == "paid":
+        hotel_phone = restaurant.phone or (
+            restaurant.owner.phone if getattr(restaurant, "owner", None) else None
+        )
+        if hotel_phone:
+            sms.send_order_alert(hotel_phone, order.order_number)
 
     return {
         "id": order.id,
@@ -366,5 +367,5 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         "platform_charge": float(order.platform_fee or 0),
         "distance_km": float(order.distance_km) if order.distance_km is not None else None,
         "eta_minutes": order.eta_minutes,
-        "online_payment_stub": online_stub,
+        "needs_payment": order.payment_method == "online" and order.payment_status != "paid",
     }
