@@ -56,6 +56,34 @@ def _maybe_auto_deactivate(db: Session, promo: PromoCode) -> None:
         db.flush()
 
 
+def _discount_type(promo: PromoCode) -> str:
+    raw = (getattr(promo, "discount_type", None) or "percent").strip().lower()
+    return raw if raw in ("percent", "flat") else "percent"
+
+
+def _compute_discount(promo: PromoCode, subtotal: Decimal | None) -> Decimal:
+    if subtotal is None:
+        return Decimal("0")
+    dtype = _discount_type(promo)
+    if dtype == "flat":
+        flat = Decimal(str(promo.flat_off or 0))
+        if flat <= 0:
+            return Decimal("0")
+        return min(flat, subtotal).quantize(Decimal("0.01"))
+    if promo.percent_off:
+        return (
+            subtotal * Decimal(str(promo.percent_off)) / Decimal("100")
+        ).quantize(Decimal("0.01"))
+    return Decimal("0")
+
+
+def _format_rupees(amount: Decimal | float | int) -> str:
+    value = Decimal(str(amount)).quantize(Decimal("0.01"))
+    if value == value.to_integral():
+        return str(int(value))
+    return f"{value:.2f}"
+
+
 def _to_out(promo: PromoCode) -> PromoOut:
     if promo.max_uses == 0:
         used = 0  # unlimited — count from usages if needed later
@@ -65,7 +93,10 @@ def _to_out(promo: PromoCode) -> PromoOut:
         id=promo.id,
         code=promo.code,
         channel=promo.channel,
+        discount_type=_discount_type(promo),
         percent_off=promo.percent_off,
+        flat_off=getattr(promo, "flat_off", None),
+        min_cart_value=getattr(promo, "min_cart_value", None),
         free_delivery=bool(promo.free_delivery),
         expires_at=promo.expires_at,
         max_uses=promo.max_uses,
@@ -100,7 +131,14 @@ def list_public_active_promos(
             {
                 "code": promo.code,
                 "channel": promo.channel,
+                "discount_type": _discount_type(promo),
                 "percent_off": float(promo.percent_off) if promo.percent_off is not None else None,
+                "flat_off": float(promo.flat_off) if getattr(promo, "flat_off", None) is not None else None,
+                "min_cart_value": (
+                    float(promo.min_cart_value)
+                    if getattr(promo, "min_cart_value", None) is not None
+                    else None
+                ),
                 "free_delivery": bool(promo.free_delivery),
                 "description": promo.description,
                 "expires_at": promo.expires_at.isoformat() if promo.expires_at else None,
@@ -121,7 +159,10 @@ def create_promo(
         tenant_id=tenant_id,
         code=payload.code,
         channel=payload.channel,
+        discount_type=payload.discount_type,
         percent_off=payload.percent_off,
+        flat_off=payload.flat_off,
+        min_cart_value=payload.min_cart_value,
         free_delivery=payload.free_delivery,
         expires_at=payload.expires_at,
         max_uses=payload.max_uses,
@@ -243,12 +284,29 @@ def validate_promo(
             code=promo.code,
         )
 
-    discount = Decimal("0")
-    delivery_after = payload.delivery_fee
-    if promo.percent_off and payload.subtotal is not None:
-        discount = (payload.subtotal * Decimal(promo.percent_off) / Decimal("100")).quantize(
-            Decimal("0.01")
+    min_cart = getattr(promo, "min_cart_value", None)
+    if (
+        min_cart is not None
+        and Decimal(str(min_cart)) > 0
+        and payload.subtotal is not None
+        and Decimal(str(payload.subtotal)) < Decimal(str(min_cart))
+    ):
+        amount = _format_rupees(min_cart)
+        return PromoValidateResponse(
+            valid=False,
+            reason="min_cart",
+            message=f"Order applicable above {amount} Rs",
+            code=promo.code,
+            channel=promo.channel,
+            discount_type=_discount_type(promo),
+            percent_off=promo.percent_off,
+            flat_off=getattr(promo, "flat_off", None),
+            min_cart_value=promo.min_cart_value,
+            free_delivery=bool(promo.free_delivery),
         )
+
+    discount = _compute_discount(promo, payload.subtotal)
+    delivery_after = payload.delivery_fee
     if promo.free_delivery and payload.delivery_fee is not None:
         delivery_after = Decimal("0")
 
@@ -257,7 +315,10 @@ def validate_promo(
         message="Promocode applied",
         code=promo.code,
         channel=promo.channel,
+        discount_type=_discount_type(promo),
         percent_off=promo.percent_off,
+        flat_off=getattr(promo, "flat_off", None),
+        min_cart_value=getattr(promo, "min_cart_value", None),
         free_delivery=bool(promo.free_delivery),
         discount_amount=discount,
         delivery_fee_after=delivery_after,
@@ -301,6 +362,8 @@ def apply_promo_to_order(
     order.promo_code_id = promo.id
     order.promo_code = promo.code
     order.promo_percent_off = promo.percent_off
+    order.promo_discount_type = _discount_type(promo)
+    order.promo_flat_off = getattr(promo, "flat_off", None)
     order.promo_free_delivery = free_del
     order.discount = discount
     if free_del:
@@ -335,6 +398,8 @@ def apply_promo_to_order(
         user_id=order.customer_id,
         discount_amount=discount,
         percent_off_snapshot=promo.percent_off,
+        discount_type_snapshot=_discount_type(promo),
+        flat_off_snapshot=getattr(promo, "flat_off", None),
         free_delivery_applied=free_del,
         client_channel=client_channel,
     )
@@ -382,6 +447,8 @@ def get_usages(
                 restaurant_name=order.restaurant.name if order.restaurant else None,
                 discount_amount=u.discount_amount,
                 percent_off_snapshot=u.percent_off_snapshot,
+                discount_type_snapshot=getattr(u, "discount_type_snapshot", None),
+                flat_off_snapshot=getattr(u, "flat_off_snapshot", None),
                 free_delivery_applied=bool(u.free_delivery_applied),
                 client_channel=u.client_channel,
                 created_at=u.created_at,

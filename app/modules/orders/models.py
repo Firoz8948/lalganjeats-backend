@@ -65,6 +65,8 @@ class Order(Base):
     )
     promo_code          = Column(String(40), nullable=True)
     promo_percent_off   = Column(DECIMAL(5, 2), nullable=True)
+    promo_discount_type = Column(String(20), nullable=True)
+    promo_flat_off      = Column(DECIMAL(10, 2), nullable=True)
     promo_free_delivery = Column(Boolean, default=False)
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
