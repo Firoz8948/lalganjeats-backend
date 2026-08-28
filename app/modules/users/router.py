@@ -67,8 +67,13 @@ def update_profile(
         current_user.full_name = payload.full_name  # sync to users table
 
     if payload.email is not None:
-        profile.email = payload.email
-        current_user.email = payload.email
+        email_clean = payload.email.strip().lower() if payload.email.strip() else None
+        if email_clean:
+            existing = db.query(User).filter(User.email == email_clean, User.id != current_user.id).first()
+            if existing:
+                raise HTTPException(400, "Please use another email address. This email address is already registered.")
+        profile.email = email_clean
+        current_user.email = email_clean
 
     if payload.date_of_birth is not None:
         profile.date_of_birth = payload.date_of_birth
@@ -356,3 +361,18 @@ def update_settings(
 
     db.commit()
     return {"message": "Settings saved"}
+
+
+class UserFcmTokenUpdate(BaseModel):
+    fcm_token: str
+
+
+@router.post("/fcm-token")
+def update_user_fcm_token(
+    payload: UserFcmTokenUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.fcm_token = payload.fcm_token.strip()
+    db.commit()
+    return {"status": "ok"}

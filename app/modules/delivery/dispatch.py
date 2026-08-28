@@ -71,12 +71,7 @@ def ranked_partners(db: Session, order: Order) -> list[tuple[User, DeliveryProfi
 
 
 def start_dispatch(order_id: int) -> None:
-    """Fire-and-forget background cascade for an order."""
-    t = threading.Thread(target=_dispatch_loop, args=(order_id,), daemon=True)
-    t.start()
-
-
-def _dispatch_loop(order_id: int) -> None:
+    """Broadcast delivery offer immediately to all active online delivery partners."""
     db = SessionLocal()
     try:
         order = db.query(Order).filter(Order.id == order_id).first()
@@ -87,127 +82,80 @@ def _dispatch_loop(order_id: int) -> None:
         if order.status not in ("accepted", "ready"):
             return
 
-        partners = ranked_partners(db, order)
+        tenant_id = order.tenant_id or (order.restaurant.tenant_id if order.restaurant else None)
+        r_lat, r_lng = _restaurant_coords(order)
+
+        q = (
+            db.query(User, DeliveryProfile)
+            .join(DeliveryProfile, DeliveryProfile.user_id == User.id)
+            .filter(
+                User.role == "delivery_partner",
+                User.is_active == True,
+                DeliveryProfile.is_online == True,
+            )
+        )
+        if tenant_id is not None:
+            q = q.filter(User.tenant_id == tenant_id)
+
+        partners = q.all()
         if not partners:
-            logger.info("No online DPs for order %s", order_id)
+            logger.info("No online DPs available to broadcast order %s", order_id)
             return
 
-        wait = WAIT_SECONDS()
-        visible_upto = 0  # index exclusive — expand ring
+        for user, profile in partners:
+            km = 0.0
+            if r_lat is not None and profile.current_latitude is not None and profile.current_longitude is not None:
+                try:
+                    km, _ = distance_and_drive_minutes(
+                        float(profile.current_latitude),
+                        float(profile.current_longitude),
+                        r_lat,
+                        r_lng,
+                    )
+                except Exception:
+                    km = 0.0
 
-        while True:
-            db.refresh(order)
-            if order.delivery_partner_id or order.status in (
-                "cancelled",
-                "delivered",
-                "picked_up",
-            ):
-                return
-
-            # Expire stale open offers past wait window (only the latest ring edge)
-            now = datetime.now(timezone.utc)
-            open_offers = (
+            existing = (
                 db.query(DeliveryOffer)
                 .filter(
                     DeliveryOffer.order_id == order_id,
-                    DeliveryOffer.status == "offered",
+                    DeliveryOffer.delivery_partner_id == user.id,
                 )
-                .all()
+                .first()
             )
-            rejected_or_expired = False
-            for off in open_offers:
-                if off.expires_at and off.expires_at <= now:
-                    off.status = "expired"
-                    off.responded_at = now
-                    rejected_or_expired = True
-
-            # Check rejects
-            if any(o.status == "rejected" for o in open_offers):
-                rejected_or_expired = True
-
-            db.commit()
-
-            need_expand = False
-            if visible_upto == 0:
-                need_expand = True
-            elif rejected_or_expired:
-                need_expand = True
-            else:
-                # If all current offered expired without accept → expand
-                still_open = (
-                    db.query(DeliveryOffer)
-                    .filter(
-                        DeliveryOffer.order_id == order_id,
-                        DeliveryOffer.status == "offered",
-                    )
-                    .count()
+            if not existing:
+                offer = DeliveryOffer(
+                    order_id=order_id,
+                    delivery_partner_id=user.id,
+                    rank=1,
+                    distance_km=km,
+                    status="offered",
+                    expires_at=None,
                 )
-                if still_open == 0 and visible_upto < len(partners):
-                    need_expand = True
+                db.add(offer)
+                logger.info("Broadcast offered order %s to DP %s (km=%s)", order_id, user.id, km)
+            elif existing.status in ("expired", "superseded"):
+                existing.status = "offered"
+                existing.expires_at = None
 
-            if need_expand and visible_upto < len(partners):
-                visible_upto += 1
-                user, profile, km = partners[visible_upto - 1]
-                existing = (
-                    db.query(DeliveryOffer)
-                    .filter(
-                        DeliveryOffer.order_id == order_id,
-                        DeliveryOffer.delivery_partner_id == user.id,
-                    )
-                    .first()
+        db.commit()
+
+        # Send FCM multicast push to all online delivery partners
+        fcm_tokens = [user.fcm_token for user, _ in partners if getattr(user, "fcm_token", None)]
+        if fcm_tokens:
+            try:
+                from app.core.fcm import send_multicast_push
+                r_name = order.restaurant.name if order.restaurant else "Restaurant"
+                send_multicast_push(
+                    fcm_tokens,
+                    "🛵 New Delivery Offer!",
+                    f"New delivery order #{order.order_number} available from {r_name}. Accept now!",
+                    {"order_id": str(order.id), "type": "new_delivery_offer"},
                 )
-                if not existing:
-                    expires = datetime.now(timezone.utc) + timedelta(seconds=wait)
-                    offer = DeliveryOffer(
-                        order_id=order_id,
-                        delivery_partner_id=user.id,
-                        rank=visible_upto,
-                        distance_km=km,
-                        status="offered",
-                        expires_at=expires,
-                    )
-                    db.add(offer)
-                    db.commit()
-                    dp_webhook.on_offer_created(order, user, km)
-                    logger.info(
-                        "Offered order %s to DP %s rank=%s km=%s",
-                        order_id, user.id, visible_upto, km,
-                    )
-
-            if visible_upto >= len(partners):
-                # Wait for any remaining open offers then stop
-                still = (
-                    db.query(DeliveryOffer)
-                    .filter(
-                        DeliveryOffer.order_id == order_id,
-                        DeliveryOffer.status == "offered",
-                    )
-                    .count()
-                )
-                if still == 0:
-                    logger.info("Cascade exhausted for order %s", order_id)
-                    return
-
-            # Sleep small chunks so rejects are handled quickly
-            for _ in range(wait):
-                db.refresh(order)
-                if order.delivery_partner_id:
-                    return
-                # If any reject on the newest offer, break early to expand
-                newest = (
-                    db.query(DeliveryOffer)
-                    .filter(
-                        DeliveryOffer.order_id == order_id,
-                        DeliveryOffer.rank == visible_upto,
-                    )
-                    .first()
-                )
-                if newest and newest.status == "rejected":
-                    break
-                threading.Event().wait(1.0)
-
+            except Exception:
+                pass
     except Exception:
-        logger.exception("Dispatch loop failed for order %s", order_id)
+        logger.exception("Broadcast dispatch failed for order %s", order_id)
     finally:
         db.close()
 

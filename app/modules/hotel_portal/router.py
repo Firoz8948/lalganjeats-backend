@@ -386,7 +386,11 @@ def update_order_status(
     order.status = payload.status
     db.commit()
 
-    # Hotel accept → start nearest delivery-partner cascade
+    # Broadcast updated tracking to customer WebSocket
+    from app.modules.tracking.service import broadcast_order_tracking
+    broadcast_order_tracking(db, order.id)
+
+    # Hotel accept → start nearest delivery-partner broadcast dispatch
     if payload.status == "accepted" and prev == "pending":
         from app.modules.delivery.dispatch import start_dispatch
         start_dispatch(order.id)
@@ -513,3 +517,18 @@ def update_settings(
 
     db.commit()
     return {"message": "Settings saved"}
+
+
+class FcmTokenUpdate(BaseModel):
+    fcm_token: str
+
+
+@router.post("/fcm-token")
+def update_fcm_token(
+    payload: FcmTokenUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_restaurant_owner)
+):
+    current_user.fcm_token = payload.fcm_token.strip()
+    db.commit()
+    return {"status": "ok"}

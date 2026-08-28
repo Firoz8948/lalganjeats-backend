@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 !.env.example
+*-firebase-adminsdk-*.json
+*.pem
+*.key
 
 # Python
 __pycache__/

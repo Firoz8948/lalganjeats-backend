@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     GOOGLE_MAPS_API_KEY: str = ""
     SMS_BRAND_NAME: str = "LalganjEats"
     DELIVERY_OFFER_WAIT_SECONDS: int = 10
+    FIREBASE_CREDENTIALS_PATH: str = "lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json"
+    FIREBASE_CREDENTIALS_JSON: str = ""
 
     # Partner report delivery
     SMTP_HOST: str = ""

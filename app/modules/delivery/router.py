@@ -451,3 +451,18 @@ def initiate_cash_remit(
     from app.modules.payments.cash_remittance import initiate_cash_remittance
 
     return initiate_cash_remittance(db, current_user)
+
+
+class DpFcmTokenUpdate(BaseModel):
+    fcm_token: str
+
+
+@router.post("/fcm-token")
+def update_delivery_fcm_token(
+    payload: DpFcmTokenUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_delivery_partner),
+):
+    current_user.fcm_token = payload.fcm_token.strip()
+    db.commit()
+    return {"status": "ok"}

@@ -348,6 +348,19 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         if hotel_phone:
             sms.send_order_alert(hotel_phone, order.order_number)
 
+        # Send FCM background push to restaurant owner
+        if getattr(restaurant, "owner", None) and getattr(restaurant.owner, "fcm_token", None):
+            try:
+                from app.core.fcm import send_push_notification
+                send_push_notification(
+                    restaurant.owner.fcm_token,
+                    "🎉 New Order Received!",
+                    f"You received a new order #{order.order_number}. Accept now and cook it!",
+                    {"order_id": str(order.id), "type": "new_order"},
+                )
+            except Exception:
+                pass
+
     return {
         "id": order.id,
         "order_number": order.order_number,

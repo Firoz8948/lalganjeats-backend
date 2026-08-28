@@ -161,3 +161,27 @@ def get_track_snapshot(
     base.available = True
     base.message = status_meta
     return base
+
+
+def broadcast_order_tracking(db: Session, order_id: int) -> None:
+    """Broadcast updated tracking snapshot to all active WebSocket listeners for this order."""
+    try:
+        from app.modules.orders.models import Order
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order or not order.customer:
+            return
+        snap = get_track_snapshot(db, order_id, order.customer)
+        import asyncio
+        from app.modules.websocket.manager import tracking_manager
+        payload = {
+            "type": "track_update",
+            "order_id": order_id,
+            "data": snap.model_dump(mode="json"),
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(tracking_manager.broadcast(order_id, payload))
+        except RuntimeError:
+            asyncio.run(tracking_manager.broadcast(order_id, payload))
+    except Exception:
+        pass
