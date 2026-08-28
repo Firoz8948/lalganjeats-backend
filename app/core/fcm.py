@@ -6,11 +6,19 @@ from __future__ import annotations
 
 import logging
 import os
-import firebase_admin
-from firebase_admin import credentials, messaging
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+    _FIREBASE_AVAILABLE = True
+except ImportError:
+    firebase_admin = None
+    credentials = None
+    messaging = None
+    _FIREBASE_AVAILABLE = False
 
 _app_initialized = False
 
@@ -19,6 +27,10 @@ def init_firebase() -> bool:
     global _app_initialized
     if _app_initialized:
         return True
+
+    if not _FIREBASE_AVAILABLE:
+        logger.warning("firebase-admin package not installed. Push notifications disabled.")
+        return False
 
     # 1. First check if raw JSON string is provided in .env (FIREBASE_CREDENTIALS_JSON)
     json_str = getattr(settings, "FIREBASE_CREDENTIALS_JSON", "")
