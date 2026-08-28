@@ -53,8 +53,11 @@ from app.modules.seo.router import router as seo_router
 from app.modules.broadcast_notifications.router import router as broadcast_notifications_router
 from app.modules.app_updates.router import router as app_updates_router
 
-# ── Create tables ──────────────────────────────────────────
+from app.core.database import Base, engine, run_auto_migrations
+
+# ── Create tables & apply auto-migrations ─────────────────
 Base.metadata.create_all(bind=engine)
+run_auto_migrations()
 ensure_upload_dirs()
 
 app = FastAPI(title="LalganjEats API", version="1.0.0")
@@ -62,6 +65,7 @@ app = FastAPI(title="LalganjEats API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=r"https://.*\.lalganjeats\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
