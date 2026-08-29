@@ -32,7 +32,27 @@ def init_firebase() -> bool:
         logger.warning("firebase-admin package not installed. Push notifications disabled.")
         return False
 
-    # 1. First check if raw JSON string is provided in .env (FIREBASE_CREDENTIALS_JSON)
+    # --- Approach 1: File-based credentials (most reliable in Docker) ---
+    key_path = getattr(settings, "FIREBASE_CREDENTIALS_PATH", "lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json")
+    if not os.path.isabs(key_path):
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        resolved_path = os.path.join(base_dir, key_path)
+        if os.path.exists(resolved_path):
+            key_path = resolved_path
+
+    if os.path.exists(key_path) and os.path.isfile(key_path):
+        try:
+            cred = credentials.Certificate(key_path)
+            firebase_admin.initialize_app(cred)
+            _app_initialized = True
+            logger.warning("[FCM] Firebase Admin SDK initialized from file: %s", key_path)
+            return True
+        except Exception as e:
+            logger.error("[FCM] Failed to initialize from file %s: %s", key_path, e)
+    else:
+        logger.warning("[FCM] Key file not found at %s, trying env var...", key_path)
+
+    # --- Approach 2: JSON string from environment variable ---
     json_str = getattr(settings, "FIREBASE_CREDENTIALS_JSON", "")
     if json_str and json_str.strip():
         try:
@@ -42,64 +62,33 @@ def init_firebase() -> bool:
             if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
                 raw = raw[1:-1]
 
-            # Docker-compose env_file can double-escape: \\n becomes literal backslash+n
-            # Try parsing as-is first, then with unescaping
             try:
                 cred_dict = json.loads(raw)
             except json.JSONDecodeError:
-                # The env_file parser may have mangled \n — try replacing literal \\n
                 raw_fixed = raw.replace("\\n", "\n")
                 cred_dict = json.loads(raw_fixed)
 
-            # Fix private_key newlines — multiple formats possible from env_file
+            # Fix private_key newlines
             if "private_key" in cred_dict:
                 pk = cred_dict["private_key"]
-                # Replace literal two-char \n sequences with real newlines
                 if "\\n" in pk:
                     pk = pk.replace("\\n", "\n")
-                # Some env parsers produce \\\\n
-                if "\\\\n" in pk:
-                    pk = pk.replace("\\\\n", "\n")
-                # Ensure the key starts with proper PEM header
                 pk = pk.strip()
                 cred_dict["private_key"] = pk
-                # Diagnostic logging (safe — only shows first/last chars)
-                logger.info("private_key starts with: %s ... ends with: %s (len=%d)",
-                            repr(pk[:30]), repr(pk[-30:]), len(pk))
+                logger.warning("[FCM] private_key starts with: %s (len=%d)", repr(pk[:27]), len(pk))
 
-            logger.info("Firebase JSON parsed OK. project_id=%s, client_email=%s",
-                        cred_dict.get("project_id"), cred_dict.get("client_email"))
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             _app_initialized = True
-            logger.info("Firebase Admin SDK initialized successfully from FIREBASE_CREDENTIALS_JSON in .env.")
+            logger.warning("[FCM] Firebase Admin SDK initialized from FIREBASE_CREDENTIALS_JSON env var.")
             return True
         except json.JSONDecodeError as e:
-            logger.error("FIREBASE_CREDENTIALS_JSON is not valid JSON: %s (first 100 chars: %s)", e, json_str[:100])
+            logger.error("[FCM] FIREBASE_CREDENTIALS_JSON is not valid JSON: %s", e)
         except Exception as e:
-            logger.error("Failed to init Firebase from FIREBASE_CREDENTIALS_JSON: %s", e)
+            logger.error("[FCM] Failed to init from FIREBASE_CREDENTIALS_JSON: %s", e)
 
-    # 2. Check file path
-    key_path = getattr(settings, "FIREBASE_CREDENTIALS_PATH", "lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json")
-    if not os.path.isabs(key_path):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        resolved_path = os.path.join(base_dir, key_path)
-        if os.path.exists(resolved_path):
-            key_path = resolved_path
-
-    if not os.path.exists(key_path):
-        logger.warning("FCM key file not found at %s. Push notifications disabled.", key_path)
-        return False
-
-    try:
-        cred = credentials.Certificate(key_path)
-        firebase_admin.initialize_app(cred)
-        _app_initialized = True
-        logger.info("Firebase Admin SDK initialized successfully from file %s.", key_path)
-        return True
-    except Exception as e:
-        logger.error("Failed to initialize Firebase Admin SDK from file: %s", e)
-        return False
+    logger.error("[FCM] All Firebase init approaches failed. Push notifications disabled.")
+    return False
 
 
 def send_push_notification(
@@ -139,10 +128,10 @@ def send_push_notification(
             ),
         )
         response = messaging.send(msg)
-        logger.info("FCM push sent successfully: %s", response)
+        logger.warning("[FCM] Push sent OK: %s", response)
         return True
     except Exception as e:
-        logger.warning("Failed to send FCM push to token %s...: %s", token[:15] if token else "", e)
+        logger.warning("[FCM] Failed to send push to token %s...: %s", token[:15] if token else "", e)
         return False
 
 
@@ -184,8 +173,13 @@ def send_multicast_push(
             ),
         )
         response = messaging.send_each_for_multicast(msg)
-        logger.info("FCM multicast sent. Success count: %s / %s", response.success_count, len(valid_tokens))
+        logger.warning("[FCM] Multicast: %d/%d succeeded", response.success_count, len(valid_tokens))
+        # Log individual failures for debugging
+        if response.failure_count > 0:
+            for i, send_response in enumerate(response.responses):
+                if send_response.exception:
+                    logger.warning("[FCM] Token %d failed: %s", i, send_response.exception)
         return response.success_count
     except Exception as e:
-        logger.warning("Failed to send FCM multicast push: %s", e)
+        logger.warning("[FCM] Failed to send multicast push: %s", e)
         return 0
