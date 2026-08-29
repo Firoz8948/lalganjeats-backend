@@ -49,6 +49,15 @@ class Order(Base):
     # Doorstep collection (COD / split). Prepaid orders keep these null.
     cash_collected      = Column(DECIMAL(10, 2), nullable=True)
     online_collected    = Column(DECIMAL(10, 2), nullable=True)
+    # PayU-hosted doorstep online collection (UPI/QR at customer's door).
+    # `collection_txnid` is the txnid we send to PayU when the DP taps
+    # "Show UPI QR"; PayU echoes it back in surl/furl.  Once we verify the
+    # response hash we stamp `collection_online_paid_at` and the DP app
+    # (which polls) unlocks the "Confirm Delivered" button.
+    collection_txnid            = Column(String(64), nullable=True, index=True)
+    collection_amount           = Column(DECIMAL(10, 2), nullable=True)
+    collection_initiated_at     = Column(DateTime(timezone=True), nullable=True)
+    collection_online_paid_at   = Column(DateTime(timezone=True), nullable=True)
     cash_remittance_id  = Column(
         Integer,
         ForeignKey("cash_remittances.id", ondelete="SET NULL"),

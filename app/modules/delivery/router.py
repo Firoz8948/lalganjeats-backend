@@ -216,20 +216,27 @@ class CollectionPaymentBody(BaseModel):
     online_amount: float
 
 
-@router.post("/orders/{order_id}/collection-payment")
-def create_collection_payment(
+# ── PayU-hosted UPI/QR doorstep collection ─────────────────
+# The DP taps "Show UPI QR" → we generate a PayU txnid and a short URL that
+# encodes into a QR the customer scans.  Their phone opens the URL → we render
+# an auto-submit form to PayU → customer pays with any UPI app → PayU calls our
+# surl → we mark `collection_online_paid_at`.  Meanwhile the DP app polls
+# /collect-online/status and unlocks "Confirm Delivered" when paid=true.
+@router.post("/orders/{order_id}/collect-online/initiate")
+def initiate_online_collection(
     order_id: int,
     body: CollectionPaymentBody,
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
-    """Create a Razorpay order for the online portion of doorstep collection."""
+    from uuid import uuid4
+
     from app.core.config import settings
-    from app.core.razorpay_service import create_order, razorpay_configured
+    from app.core.payu_service import payu_configured
 
     if body.online_amount <= 0:
         raise HTTPException(400, "online_amount must be greater than 0")
-    if not razorpay_configured():
+    if not payu_configured():
         raise HTTPException(503, "Online payments are not configured")
 
     order = db.query(Order).filter(
@@ -238,30 +245,59 @@ def create_collection_payment(
         Order.status.in_(["picked_up", "out_for_delivery"]),
     ).first()
     if not order:
-        raise HTTPException(404, "Order not found")
+        raise HTTPException(404, "Order not found or not in transit")
     if (order.payment_status or "").lower() == "paid":
         raise HTTPException(400, "Order is already paid")
 
     due = float(order.total_amount or 0)
-    if body.online_amount > due + 0.01:
+    amount = round(float(body.online_amount), 2)
+    if amount > due + 0.01:
         raise HTTPException(400, "online_amount exceeds order total")
 
-    rz = create_order(
-        body.online_amount,
-        receipt=f"collect-{order.order_number}"[:40],
-        notes={
-            "order_id": str(order.id),
-            "purpose": "doorstep_collection",
-            "partner_id": str(current_user.id),
-        },
-    )
-    order.razorpay_order_id = rz["id"]
+    # Fresh attempt: generate new txnid so a previously abandoned QR can't
+    # be used to spoof this order.
+    txnid = f"col{order.id}{uuid4().hex[:10]}".upper()[:40]
+    order.collection_txnid = txnid
+    order.collection_amount = amount
+    order.collection_initiated_at = datetime.utcnow()
+    order.collection_online_paid_at = None
     db.commit()
+
+    api_base = (settings.API_PUBLIC_URL or "").rstrip("/")
+    if not api_base:
+        raise HTTPException(503, "API_PUBLIC_URL is not configured")
+
+    qr_url = f"{api_base}/api/v1/payment/collect/{txnid}"
+    expires_at = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
     return {
-        "razorpay_order_id": rz["id"],
-        "amount": body.online_amount,
-        "currency": "INR",
-        "key_id": settings.RAZORPAY_KEY_ID,
+        "txnid": txnid,
+        "amount": amount,
+        "qr_url": qr_url,
+        "payment_page_url": qr_url,
+        "expires_at": expires_at,
+    }
+
+
+@router.get("/orders/{order_id}/collect-online/status")
+def get_online_collection_status(
+    order_id: int,
+    txnid: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_delivery_partner),
+):
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.delivery_partner_id == current_user.id,
+    ).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+
+    paid = bool(order.collection_online_paid_at) and (order.collection_txnid or "") == txnid
+    return {
+        "txnid": txnid,
+        "paid": paid,
+        "amount": float(order.collection_amount or 0) if paid else 0.0,
+        "paid_at": order.collection_online_paid_at.isoformat() if paid and order.collection_online_paid_at else None,
     }
 
 
@@ -269,9 +305,8 @@ class CompleteBody(BaseModel):
     otp: str
     cash_amount: float = 0
     online_amount: float = 0
-    razorpay_order_id: str | None = None
-    razorpay_payment_id: str | None = None
-    razorpay_signature: str | None = None
+    # PayU-hosted UPI/QR collection reference. Required when online_amount > 0.
+    collection_txnid: str | None = None
 
 
 @router.post("/orders/{order_id}/complete")
@@ -281,8 +316,6 @@ def complete_delivery(
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
-    from app.core.razorpay_service import verify_payment_signature
-
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
@@ -312,23 +345,25 @@ def complete_delivery(
                 f"Cash + online must equal order total ₹{due:g}",
             )
         if online > 0:
-            if not (
-                body.razorpay_order_id
-                and body.razorpay_payment_id
-                and body.razorpay_signature
-            ):
+            if not body.collection_txnid:
                 raise HTTPException(
                     400,
-                    "Online collection requires a successful Razorpay payment",
+                    "Online collection requires a verified PayU collection. "
+                    "Show the UPI QR to the customer first and wait for it to be paid.",
                 )
-            if not verify_payment_signature(
-                body.razorpay_order_id,
-                body.razorpay_payment_id,
-                body.razorpay_signature,
-            ):
-                raise HTTPException(400, "Invalid payment signature")
-            order.razorpay_order_id = body.razorpay_order_id
-            order.razorpay_payment_id = body.razorpay_payment_id
+            if (order.collection_txnid or "") != body.collection_txnid:
+                raise HTTPException(400, "Collection txnid mismatch")
+            if not order.collection_online_paid_at:
+                raise HTTPException(
+                    400,
+                    "PayU collection has not been confirmed yet",
+                )
+            expected = round(float(order.collection_amount or 0), 2)
+            if abs(expected - online) > 0.05:
+                raise HTTPException(
+                    400,
+                    f"Online amount ({online}) doesn't match verified collection ({expected})",
+                )
 
     order.status = "delivered"
     order.payment_status = "paid"

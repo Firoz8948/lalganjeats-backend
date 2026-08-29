@@ -374,6 +374,9 @@ def _mark_order_paid_from_payu(db: Session, params: dict) -> Order | None:
 
     if str(params.get("udf3") or "") == "cash_remit":
         return None
+    if str(params.get("udf3") or "") == "collect_at_door":
+        # Doorstep collection is handled by _mark_collection_paid_from_payu.
+        return None
 
     if not verify_response_hash(params):
         logger.warning("PayU hash mismatch txnid=%s", params.get("txnid"))
@@ -418,13 +421,64 @@ def _mark_order_paid_from_payu(db: Session, params: dict) -> Order | None:
     return order
 
 
+def _mark_collection_paid_from_payu(db: Session, params: dict) -> Order | None:
+    """
+    Confirm a PayU-hosted doorstep online collection.
+    Called from surl when udf3 == 'collect_at_door'.  We verify the hash,
+    stamp `collection_online_paid_at` on the order, and leave the order in
+    picked_up status — the DP still needs to hit "Confirm Delivered".
+    """
+    from datetime import datetime
+
+    from app.core.payu_service import verify_response_hash
+
+    if not verify_response_hash(params):
+        logger.warning("PayU collection hash mismatch txnid=%s", params.get("txnid"))
+        return None
+
+    status = str(params.get("status") or "").lower()
+    if status not in ("success", "captured"):
+        return None
+
+    txnid = str(params.get("txnid") or "")
+    if not txnid:
+        return None
+
+    order = db.query(Order).filter(Order.collection_txnid == txnid).first()
+    if not order:
+        logger.warning("PayU collection: no order for txnid=%s", txnid)
+        return None
+
+    if order.collection_online_paid_at:
+        return order  # idempotent
+
+    # Sanity check amount matches what we recorded when initiating.
+    try:
+        paid_amount = round(float(params.get("amount") or 0), 2)
+    except (TypeError, ValueError):
+        paid_amount = 0.0
+    expected = round(float(order.collection_amount or 0), 2)
+    if expected and abs(paid_amount - expected) > 0.05:
+        logger.warning(
+            "PayU collection amount mismatch txnid=%s expected=%s got=%s",
+            txnid, expected, paid_amount,
+        )
+        return None
+
+    order.collection_online_paid_at = datetime.utcnow()
+    order.online_collected = expected or paid_amount
+    order.payu_mihpayid = str(params.get("mihpayid") or "") or order.payu_mihpayid
+    db.commit()
+    return order
+
+
 @router.post("/payu/success")
 async def payu_success(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    from fastapi.responses import RedirectResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse
 
     from app.modules.payments.cash_remittance import mark_remittance_paid
 
@@ -442,6 +496,13 @@ async def payu_success(
             f"{front}/deliverypartner/earnings?remit=failed",
             status_code=303,
         )
+
+    if str(params.get("udf3") or "") == "collect_at_door":
+        order = _mark_collection_paid_from_payu(db, params)
+        # Show a plain HTML confirmation page to the customer's browser.
+        if order:
+            return HTMLResponse(_collection_result_html(True, order.order_number))
+        return HTMLResponse(_collection_result_html(False, params.get("udf2") or ""))
 
     order = _mark_order_paid_from_payu(db, params)
     if order:
@@ -462,7 +523,7 @@ async def payu_failure(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    from fastapi.responses import RedirectResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse
 
     from app.modules.payments.cash_remittance import release_pending_remittance_orders
     from app.modules.payments.models import CashRemittance
@@ -485,6 +546,9 @@ async def payu_failure(
             status_code=303,
         )
 
+    if str(params.get("udf3") or "") == "collect_at_door":
+        return HTMLResponse(_collection_result_html(False, params.get("udf2") or ""))
+
     txnid = str(params.get("txnid") or "")
     order_number = str(params.get("udf2") or "")
     q = "status=failed"
@@ -493,6 +557,158 @@ async def payu_failure(
     if txnid:
         q += f"&txnid={txnid}"
     return RedirectResponse(f"{front}/checkout/payment-result?{q}", status_code=303)
+
+
+def _collection_page_html(
+    *, order_number: str, amount_str: str, payment_url: str, fields: dict,
+) -> str:
+    """Auto-submit form to PayU — customer sees a brief 'Redirecting…' page then PayU checkout."""
+    hidden = "\n".join(
+        f'      <input type="hidden" name="{k}" value="{(v or "").replace(chr(34), "&quot;")}">'
+        for k, v in fields.items()
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LalganjEats · Pay ₹{amount_str}</title>
+  <style>
+    :root {{ color-scheme: light; }}
+    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #0f172a; }}
+    .wrap {{ min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }}
+    .brand {{ font-weight: 800; color: #dc2626; letter-spacing: 0.02em; margin-bottom: 8px; }}
+    h1 {{ font-size: 20px; margin: 8px 0 4px; }}
+    p {{ margin: 4px 0; color: #475569; font-size: 14px; }}
+    .amount {{ font-size: 32px; font-weight: 800; color: #16a34a; margin: 12px 0; }}
+    .spinner {{ width: 36px; height: 36px; border: 4px solid rgba(220,38,38,0.15); border-top-color: #dc2626; border-radius: 50%; animation: spin .9s linear infinite; margin: 12px auto; }}
+    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+    button {{ background: #dc2626; color: #fff; border: none; padding: 12px 22px; border-radius: 10px; font-weight: 700; font-size: 15px; cursor: pointer; margin-top: 16px; }}
+    .note {{ font-size: 12px; color: #94a3b8; margin-top: 16px; max-width: 320px; line-height: 1.4; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">LalganjEats</div>
+    <h1>Order #{order_number}</h1>
+    <p>Pay this amount to the delivery partner</p>
+    <div class="amount">₹{amount_str}</div>
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Redirecting to secure UPI payment…</p>
+    <form id="payuForm" method="post" action="{payment_url}">
+{hidden}
+    </form>
+    <button type="button" onclick="document.getElementById('payuForm').submit()">Pay now via UPI / Card</button>
+    <div class="note">Powered by PayU. You can pay using Google Pay, PhonePe, Paytm, or any UPI app.</div>
+  </div>
+  <script>
+    setTimeout(function() {{
+      try {{ document.getElementById('payuForm').submit(); }} catch(e) {{}}
+    }}, 700);
+  </script>
+</body>
+</html>"""
+
+
+def _collection_result_html(success: bool, order_number: str) -> str:
+    color = "#16a34a" if success else "#dc2626"
+    icon = "✓" if success else "✕"
+    title = "Payment successful" if success else "Payment failed"
+    body = (
+        "Please show this screen to the delivery partner. Your order is being marked as paid."
+        if success
+        else "The payment did not go through. Please ask the delivery partner to try again or pay in cash."
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LalganjEats · {title}</title>
+  <style>
+    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #0f172a; }}
+    .wrap {{ min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; text-align: center; }}
+    .badge {{ width: 84px; height: 84px; border-radius: 50%; background: {color}; color: #fff; font-size: 44px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }}
+    h1 {{ margin: 8px 0 6px; font-size: 22px; }}
+    p {{ margin: 4px 0; color: #475569; font-size: 14px; max-width: 320px; line-height: 1.45; }}
+    .ord {{ font-size: 12px; color: #94a3b8; margin-top: 12px; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="badge">{icon}</div>
+    <h1>{title}</h1>
+    <p>{body}</p>
+    <div class="ord">{'Order #' + order_number if order_number else ''}</div>
+  </div>
+</body>
+</html>"""
+
+
+@router.get("/collect/{txnid}")
+def render_collection_page(txnid: str, db: Session = Depends(get_db)):
+    """
+    Public page the customer lands on after scanning the DP's UPI QR.
+    Renders an auto-submit form that POSTs the correct PayU payload.
+    No auth — the txnid is generated server-side per attempt.
+    """
+    from fastapi.responses import HTMLResponse
+
+    from app.core.payu_service import (
+        build_checkout_payload,
+        format_amount,
+        payu_configured,
+        payu_payment_url,
+    )
+
+    if not payu_configured():
+        return HTMLResponse(
+            "<h1>Online payments are currently unavailable.</h1>",
+            status_code=503,
+        )
+
+    order = db.query(Order).filter(Order.collection_txnid == txnid).first()
+    if not order:
+        return HTMLResponse(_collection_result_html(False, ""), status_code=404)
+    if order.collection_online_paid_at:
+        return HTMLResponse(_collection_result_html(True, order.order_number))
+
+    amount = round(float(order.collection_amount or 0), 2)
+    if amount <= 0:
+        return HTMLResponse(_collection_result_html(False, order.order_number))
+
+    api_base = (settings.API_PUBLIC_URL or "").rstrip("/")
+    if not api_base:
+        return HTMLResponse(
+            "<h1>API_PUBLIC_URL is not configured.</h1>",
+            status_code=503,
+        )
+
+    customer = order.customer
+    firstname = (customer.full_name if customer else None) or "Customer"
+    email = (customer.email if customer else None) or "noreply@lalganjeats.com"
+    phone = (customer.phone if customer else None) or ""
+
+    fields = build_checkout_payload(
+        txnid=txnid,
+        amount=amount,
+        productinfo=f"LalganjEats order {order.order_number}",
+        firstname=firstname,
+        email=email,
+        phone=phone,
+        surl=f"{api_base}/api/v1/payment/payu/success",
+        furl=f"{api_base}/api/v1/payment/payu/failure",
+        udf1=str(order.id),
+        udf2=order.order_number,
+        udf3="collect_at_door",
+    )
+    html = _collection_page_html(
+        order_number=order.order_number,
+        amount_str=format_amount(amount),
+        payment_url=payu_payment_url(),
+        fields=fields,
+    )
+    return HTMLResponse(html)
 
 
 @router.get("/payu/success")

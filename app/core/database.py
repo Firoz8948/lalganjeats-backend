@@ -87,6 +87,13 @@ def run_auto_migrations():
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_discount_type VARCHAR(20);",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_flat_off NUMERIC(10,2);",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_free_delivery BOOLEAN DEFAULT FALSE;",
+
+        # Doorstep online (UPI/QR at door) collection tracking via PayU.
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_txnid VARCHAR(64);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_amount NUMERIC(10,2);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_initiated_at TIMESTAMPTZ;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_online_paid_at TIMESTAMPTZ;",
+        "CREATE INDEX IF NOT EXISTS ix_orders_collection_txnid ON orders(collection_txnid) WHERE collection_txnid IS NOT NULL;",
     ]
     for stmt in statements:
         try:
