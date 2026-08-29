@@ -10,3 +10,4 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./private_uploads:/app/private_uploads
+      - ./lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json:/app/lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json:ro

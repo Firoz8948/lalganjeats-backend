@@ -38,13 +38,35 @@ def init_firebase() -> bool:
         try:
             import json
             raw = json_str.strip()
-            # Remove wrapping quotes if someone wrapped the value in quotes inside .env
+            # Remove wrapping quotes — docker-compose env_file may keep them
             if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
                 raw = raw[1:-1]
-            cred_dict = json.loads(raw)
-            # Fix escaped newlines in private_key — .env files often store \n as literal two chars
-            if "private_key" in cred_dict and "\\n" in cred_dict["private_key"]:
-                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+
+            # Docker-compose env_file can double-escape: \\n becomes literal backslash+n
+            # Try parsing as-is first, then with unescaping
+            try:
+                cred_dict = json.loads(raw)
+            except json.JSONDecodeError:
+                # The env_file parser may have mangled \n — try replacing literal \\n
+                raw_fixed = raw.replace("\\n", "\n")
+                cred_dict = json.loads(raw_fixed)
+
+            # Fix private_key newlines — multiple formats possible from env_file
+            if "private_key" in cred_dict:
+                pk = cred_dict["private_key"]
+                # Replace literal two-char \n sequences with real newlines
+                if "\\n" in pk:
+                    pk = pk.replace("\\n", "\n")
+                # Some env parsers produce \\\\n
+                if "\\\\n" in pk:
+                    pk = pk.replace("\\\\n", "\n")
+                # Ensure the key starts with proper PEM header
+                pk = pk.strip()
+                cred_dict["private_key"] = pk
+                # Diagnostic logging (safe — only shows first/last chars)
+                logger.info("private_key starts with: %s ... ends with: %s (len=%d)",
+                            repr(pk[:30]), repr(pk[-30:]), len(pk))
+
             logger.info("Firebase JSON parsed OK. project_id=%s, client_email=%s",
                         cred_dict.get("project_id"), cred_dict.get("client_email"))
             cred = credentials.Certificate(cred_dict)
@@ -53,7 +75,7 @@ def init_firebase() -> bool:
             logger.info("Firebase Admin SDK initialized successfully from FIREBASE_CREDENTIALS_JSON in .env.")
             return True
         except json.JSONDecodeError as e:
-            logger.error("FIREBASE_CREDENTIALS_JSON is not valid JSON: %s (first 80 chars: %s)", e, json_str[:80])
+            logger.error("FIREBASE_CREDENTIALS_JSON is not valid JSON: %s (first 100 chars: %s)", e, json_str[:100])
         except Exception as e:
             logger.error("Failed to init Firebase from FIREBASE_CREDENTIALS_JSON: %s", e)
 
