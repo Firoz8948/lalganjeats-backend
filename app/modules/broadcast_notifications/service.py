@@ -52,10 +52,16 @@ def send_broadcast_notification(
         data=data_payload,
     )
 
+    msg = (
+        f"Successfully delivered notification to {sent_count} device(s)!"
+        if sent_count > 0
+        else f"Notification could not be delivered to {len(tokens)} registered token(s). Please verify FIREBASE_CREDENTIALS_JSON in backend .env on EC2."
+    )
+
     return BroadcastNotificationResponse(
-        success=True,
+        success=sent_count > 0,
         target_audience=target,
         total_eligible_users=len(users),
         sent_count=sent_count,
-        message=f"Successfully delivered notification to {sent_count} device(s)!"
+        message=msg,
     )

@@ -147,13 +147,13 @@ def start_dispatch(order_id: int) -> None:
                 from app.core.fcm import send_multicast_push
                 r_name = order.restaurant.name if order.restaurant else "Restaurant"
                 send_multicast_push(
-                    fcm_tokens,
-                    "🛵 New Delivery Offer!",
-                    f"New delivery order #{order.order_number} available from {r_name}. Accept now!",
-                    {"order_id": str(order.id), "type": "new_delivery_offer"},
+                    tokens=fcm_tokens,
+                    title="New Delivery Order Available!",
+                    body=f"New pickup at {r_name}. Order #{order.order_number}",
+                    data={"type": "new_offer", "order_id": str(order.id)},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to broadcast FCM push for order %s: %s", order.id, e)
     except Exception:
         logger.exception("Broadcast dispatch failed for order %s", order_id)
     finally:
@@ -167,10 +167,23 @@ def accept_offer(db: Session, order_id: int, partner: User) -> Order:
         raise HTTPException(404, "Order not found")
     if order.delivery_partner_id:
         from fastapi import HTTPException
-        raise HTTPException(409, "Order already assigned")
+        raise HTTPException(409, "This order was already accepted by another partner.")
     if order.status not in ("accepted", "ready"):
         from fastapi import HTTPException
         raise HTTPException(400, "Order not available for delivery")
+
+    # Check if rider already has an active delivery
+    has_active = (
+        db.query(Order.id)
+        .filter(
+            Order.delivery_partner_id == partner.id,
+            Order.status.in_(["accepted", "ready", "picked_up", "out_for_delivery"]),
+        )
+        .first()
+    )
+    if has_active:
+        from fastapi import HTTPException
+        raise HTTPException(400, "Complete the active order first before accepting a new order.")
 
     # Tenant check
     tenant_id = order.tenant_id or (order.restaurant.tenant_id if order.restaurant else None)

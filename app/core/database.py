@@ -49,18 +49,49 @@ def run_auto_migrations():
         "ALTER TABLE delivery_profiles ADD COLUMN IF NOT EXISTS has_location BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE delivery_profiles ADD COLUMN IF NOT EXISTS location_name VARCHAR(100);",
 
+        # restaurants table
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS business_category_id INT;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS slug VARCHAR(120);",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS banner_mobile_url TEXT;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS list_banner_url TEXT;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS banner_url TEXT;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS logo_url TEXT;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT TRUE;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS opening_time VARCHAR(20);",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS closing_time VARCHAR(20);",
+
         # orders table
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS otp VARCHAR(10);",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_otp VARCHAR(10);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_otp_expires_at TIMESTAMPTZ;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_otp_verified_at TIMESTAMPTZ;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS distance_km DOUBLE PRECISION;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS eta_minutes INT;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_collected NUMERIC(10,2) DEFAULT 0;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS online_collected NUMERIC(10,2) DEFAULT 0;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payu_txnid VARCHAR(100);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payu_mihpayid VARCHAR(100);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS display_total NUMERIC(10,2);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS actual_total NUMERIC(10,2);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS platform_fee NUMERIC(10,2) DEFAULT 0;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS admin_earning NUMERIC(10,2) DEFAULT 0;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_partner_earning NUMERIC(10,2) DEFAULT 0;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_remittance_id INT;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code_id INT;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code VARCHAR(50);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_percent_off NUMERIC(5,2);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_discount_type VARCHAR(20);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_flat_off NUMERIC(10,2);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_free_delivery BOOLEAN DEFAULT FALSE;",
     ]
-    try:
-        with engine.begin() as conn:
-            for stmt in statements:
-                try:
-                    conn.execute(text(stmt))
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"[AutoMigration] Notice: {e}")
+    for stmt in statements:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(stmt))
+                conn.commit()
+        except Exception:
+            pass

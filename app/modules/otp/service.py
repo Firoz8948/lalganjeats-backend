@@ -127,13 +127,13 @@ def verify_delivery_otp(order, otp_code: str, *, require_sent: bool = True) -> N
     """Raise 400 if OTP missing / expired / mismatch."""
     if not order.delivery_otp:
         raise HTTPException(400, "Send OTP first" if require_sent else "Invalid OTP")
-    if (
-        order.delivery_otp_expires_at
-        and order.delivery_otp_expires_at < datetime.now(timezone.utc)
-    ):
-        raise HTTPException(400, "OTP expired")
+    if order.delivery_otp_expires_at:
+        exp = order.delivery_otp_expires_at
+        now = datetime.utcnow() if exp.tzinfo is None else datetime.now(timezone.utc)
+        if exp < now:
+            raise HTTPException(400, "OTP expired. Please send a new OTP.")
     if str(otp_code).strip() != str(order.delivery_otp).strip():
-        raise HTTPException(400, "Invalid OTP")
+        raise HTTPException(400, "Invalid OTP. Please check and try again.")
 
 
 def clear_delivery_otp(order, db: Session) -> None:

@@ -53,12 +53,13 @@ def get_dashboard(
         db.query(Order)
         .filter(
             Order.delivery_partner_id == current_user.id,
-            Order.status.in_(["accepted", "ready", "picked_up"]),
+            Order.status.in_(["accepted", "ready", "picked_up", "out_for_delivery"]),
         )
         .order_by(Order.updated_at.desc())
         .first()
     )
 
+    available = []
     offers = (
         db.query(DeliveryOffer)
         .filter(
@@ -68,7 +69,6 @@ def get_dashboard(
         .order_by(DeliveryOffer.offered_at.desc())
         .all()
     )
-    available = []
     for off in offers:
         o = off.order
         if not o or o.delivery_partner_id:
@@ -181,10 +181,10 @@ def send_delivery_otp(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status == "picked_up",
+        Order.status.in_(["picked_up", "out_for_delivery"]),
     ).first()
     if not order:
-        raise HTTPException(404, "Order not found")
+        raise HTTPException(404, "Order not found or not in transit")
     return otp_service.issue_delivery_otp(order, db)
 
 
@@ -202,14 +202,14 @@ def verify_delivery_otp(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status == "picked_up",
+        Order.status.in_(["picked_up", "out_for_delivery"]),
     ).first()
     if not order:
-        raise HTTPException(404, "Order not found")
+        raise HTTPException(404, "Order not found or not in transit")
     otp_service.verify_delivery_otp(order, body.otp)
     order.delivery_otp_verified_at = datetime.utcnow()
     db.commit()
-    return {"verified": True}
+    return {"verified": True, "message": "OTP verified successfully"}
 
 
 class CollectionPaymentBody(BaseModel):
@@ -235,7 +235,7 @@ def create_collection_payment(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status == "picked_up",
+        Order.status.in_(["picked_up", "out_for_delivery"]),
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
@@ -286,7 +286,7 @@ def complete_delivery(
     order = db.query(Order).filter(
         Order.id == order_id,
         Order.delivery_partner_id == current_user.id,
-        Order.status == "picked_up",
+        Order.status.in_(["picked_up", "out_for_delivery"]),
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
