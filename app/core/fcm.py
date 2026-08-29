@@ -91,13 +91,33 @@ def init_firebase() -> bool:
     return False
 
 
+# ── Default "profiles" ────────────────────────────────────
+# URGENT: loud custom sound + urgent channel. Use for DP offer alerts and
+#         hotel new-order pings — anything a partner MUST notice immediately.
+# NORMAL: system default notification sound + regular channel. Use for
+#         customer-facing pushes (order status, promo blasts) so the phone
+#         behaves like every other app the customer has installed.
+_URGENT_SOUND = "order_alert"
+_URGENT_CHANNEL = "lalganjeats_urgent_orders"
+_NORMAL_SOUND = "default"
+_NORMAL_CHANNEL = "lalganjeats_alerts"
+
+
 def send_push_notification(
     token: str | None,
     title: str,
     body: str,
     data: dict[str, str] | None = None,
+    *,
+    sound: str = _URGENT_SOUND,
+    channel_id: str = _URGENT_CHANNEL,
 ) -> bool:
-    """Send high-priority push notification to a single FCM device token."""
+    """Send high-priority push notification to a single FCM device token.
+
+    Defaults to the URGENT profile (loud sound) for backward compatibility
+    with hotel/DP call sites.  Customer-facing callers should pass
+    ``sound="default"`` and ``channel_id="lalganjeats_alerts"``.
+    """
     if not token or not token.strip():
         return False
 
@@ -119,15 +139,15 @@ def send_push_notification(
                 notification=messaging.AndroidNotification(
                     title=title,
                     body=body,
-                    sound="order_alert",
-                    channel_id="lalganjeats_urgent_orders",
+                    sound=sound,
+                    channel_id=channel_id,
                     priority="max",
                     default_vibrate_timings=True,
                 ),
             ),
         )
         response = messaging.send(msg)
-        logger.warning("[FCM] Push sent OK: %s", response)
+        logger.warning("[FCM] Push sent OK (channel=%s): %s", channel_id, response)
         return True
     except Exception as e:
         logger.warning("[FCM] Failed to send push to token %s...: %s", token[:15] if token else "", e)
@@ -139,8 +159,12 @@ def send_multicast_push(
     title: str,
     body: str,
     data: dict[str, str] | None = None,
+    *,
+    sound: str = _URGENT_SOUND,
+    channel_id: str = _URGENT_CHANNEL,
 ) -> int:
-    """Send high-priority push notification to multiple device tokens."""
+    """Fan-out push to a list of FCM tokens. See :func:`send_push_notification`
+    for the ``sound`` / ``channel_id`` defaults."""
     valid_tokens = [t.strip() for t in tokens if t and t.strip()]
     if not valid_tokens:
         return 0
@@ -163,16 +187,18 @@ def send_multicast_push(
                 notification=messaging.AndroidNotification(
                     title=title,
                     body=body,
-                    sound="order_alert",
-                    channel_id="lalganjeats_urgent_orders",
+                    sound=sound,
+                    channel_id=channel_id,
                     priority="max",
                     default_vibrate_timings=True,
                 ),
             ),
         )
         response = messaging.send_each_for_multicast(msg)
-        logger.warning("[FCM] Multicast: %d/%d succeeded", response.success_count, len(valid_tokens))
-        # Log individual failures for debugging
+        logger.warning(
+            "[FCM] Multicast (channel=%s): %d/%d succeeded",
+            channel_id, response.success_count, len(valid_tokens),
+        )
         if response.failure_count > 0:
             for i, send_response in enumerate(response.responses):
                 if send_response.exception:

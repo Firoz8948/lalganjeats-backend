@@ -100,11 +100,16 @@ def test_push_to_self(
             ),
         )
 
+    # Customers get the normal system sound; partners get the loud alarm so
+    # the self-test proves the exact profile they'd hear in production.
+    is_customer = (current_user.role or "").lower() == "customer"
     ok = send_push_notification(
         token=token,
         title="LalganjEats test alert",
         body=f"Hi {current_user.full_name or 'there'}, your notifications are working.",
         data={"type": "self_test", "deep_link": "/home"},
+        sound="default" if is_customer else "order_alert",
+        channel_id="lalganjeats_alerts" if is_customer else "lalganjeats_urgent_orders",
     )
 
     return {
