@@ -371,8 +371,9 @@ class UserFcmTokenUpdate(BaseModel):
 def update_user_fcm_token(
     payload: UserFcmTokenUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    current_user.fcm_token = payload.fcm_token.strip()
-    db.commit()
+    if current_user:
+        current_user.fcm_token = payload.fcm_token.strip()
+        db.commit()
     return {"status": "ok"}

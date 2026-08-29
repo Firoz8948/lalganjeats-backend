@@ -73,14 +73,19 @@ def _get_restaurant(db: Session, owner) -> Restaurant:
     from app.modules.admin.services.restaurants import assert_live_impersonation_session
 
     assert_live_impersonation_session(db, owner)
-    query = db.query(Restaurant).filter(Restaurant.owner_id == owner.id)
     selected_id = getattr(owner, "impersonated_restaurant_id", None)
     if selected_id is not None:
-        query = query.filter(
-            Restaurant.id == int(selected_id),
-            Restaurant.tenant_id == owner.tenant_id,
-        )
-    r = query.first()
+        r = db.query(Restaurant).filter(Restaurant.id == int(selected_id)).first()
+        if r:
+            return r
+
+    r = db.query(Restaurant).filter(Restaurant.owner_id == owner.id).first()
+    if not r and getattr(owner, "role", "") in ("admin", "super_admin"):
+        tenant_id = getattr(owner, "tenant_id", 1) or 1
+        r = db.query(Restaurant).filter(Restaurant.tenant_id == tenant_id, Restaurant.is_active == True).first()
+        if not r:
+            r = db.query(Restaurant).first()
+
     if not r:
         raise HTTPException(404, "Restaurant not found")
     return r

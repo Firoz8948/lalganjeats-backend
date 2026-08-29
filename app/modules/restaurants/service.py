@@ -306,11 +306,15 @@ def create_restaurant(
     ).first():
         raise HTTPException(status_code=400, detail="Invalid business category")
 
+    base_slug = slugify_restaurant_name(payload.name)
+    unique_slug = ensure_unique_restaurant_slug(db, base_slug)
+
     restaurant = Restaurant(
         owner_id=owner.id,
         tenant_id=tenant_id,
         business_category_id=category_id,
         name=payload.name,
+        slug=unique_slug,
         description=payload.description,
         phone=payload.phone,
         address=payload.address,
@@ -327,8 +331,6 @@ def create_restaurant(
         is_active=True,
     )
     db.add(restaurant)
-    db.flush()
-    assign_restaurant_slug(db, restaurant, name=payload.name, force=True)
     db.commit()
     db.refresh(restaurant)
     return _to_public(restaurant, 0)

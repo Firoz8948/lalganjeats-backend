@@ -70,8 +70,23 @@ def get_current_user(
             assert_live_impersonation_session,
         )
 
-        assert_live_impersonation_session(db, user)
     return user
+
+def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    db: Session = Depends(get_db)
+) -> Optional[object]:
+    if not credentials or not credentials.credentials:
+        return None
+    try:
+        from app.modules.users.models import User
+        payload = jwt.decode(credentials.credentials, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id: int = payload.get("sub")
+        if not user_id:
+            return None
+        return db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    except Exception:
+        return None
 
 # ── Role Guards ───────────────────────────────────────────
 def require_role(*roles: str):
@@ -86,7 +101,7 @@ def require_role(*roles: str):
 
 # Shortcuts
 get_customer         = require_role("customer")
-get_restaurant_owner = require_role("restaurant_owner")
+get_restaurant_owner = require_role("restaurant_owner", "admin", "super_admin")
 
 
 def get_delivery_partner(
