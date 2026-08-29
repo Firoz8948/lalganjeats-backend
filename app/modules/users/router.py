@@ -1,8 +1,9 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.core.security import get_current_user, get_customer
+from app.core.security import get_current_user, get_customer, get_current_user_optional
 from app.modules.users.models import (
     User, CustomerProfile, Address, CustomerSettings
 )
