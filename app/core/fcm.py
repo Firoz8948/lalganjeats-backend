@@ -37,14 +37,25 @@ def init_firebase() -> bool:
     if json_str and json_str.strip():
         try:
             import json
-            cred_dict = json.loads(json_str.strip())
+            raw = json_str.strip()
+            # Remove wrapping quotes if someone wrapped the value in quotes inside .env
+            if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
+                raw = raw[1:-1]
+            cred_dict = json.loads(raw)
+            # Fix escaped newlines in private_key — .env files often store \n as literal two chars
+            if "private_key" in cred_dict and "\\n" in cred_dict["private_key"]:
+                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+            logger.info("Firebase JSON parsed OK. project_id=%s, client_email=%s",
+                        cred_dict.get("project_id"), cred_dict.get("client_email"))
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             _app_initialized = True
             logger.info("Firebase Admin SDK initialized successfully from FIREBASE_CREDENTIALS_JSON in .env.")
             return True
+        except json.JSONDecodeError as e:
+            logger.error("FIREBASE_CREDENTIALS_JSON is not valid JSON: %s (first 80 chars: %s)", e, json_str[:80])
         except Exception as e:
-            logger.error("Failed to parse FIREBASE_CREDENTIALS_JSON: %s", e)
+            logger.error("Failed to init Firebase from FIREBASE_CREDENTIALS_JSON: %s", e)
 
     # 2. Check file path
     key_path = getattr(settings, "FIREBASE_CREDENTIALS_PATH", "lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json")
