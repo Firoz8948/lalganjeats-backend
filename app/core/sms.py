@@ -31,16 +31,48 @@ def _get(path: str, params: dict) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+ADMIN_ORDER_ALERT_PHONES = ("9670517135", "9721054930")
+
+
 def send_order_with_customer(phone: str, order_id, customer_name: str) -> dict:
-    """V3 — order alert with customer name."""
+    """V3 — customer order confirmation (name + order id)."""
     phone = "".join(c for c in str(phone) if c.isdigit())[-10:]
+    cname = "".join(ch for ch in str(customer_name or "Customer") if ch.isalnum() or ch in " .")[:30].strip() or "Customer"
     return _get(
         "V3.php",
-        {"PHONE": phone, "OID": str(order_id), "CNAME": customer_name or "Customer"},
+        {"PHONE": phone, "OID": str(order_id), "CNAME": cname},
     )
 
 
 def send_order_alert(phone: str, order_id) -> dict:
-    """V4 — order id alert (new order / DP assigned)."""
+    """V4 — order id alert (hotel / admin / DP assigned)."""
     phone = "".join(c for c in str(phone) if c.isdigit())[-10:]
     return _get("V4.php", {"PHONE": phone, "OID": str(order_id)})
+
+
+def notify_new_order(
+    *,
+    order_number: str,
+    customer_phone: str | None,
+    customer_name: str | None,
+    hotel_phone: str | None,
+) -> None:
+    """Fan-out SMS when a new order is actually placed (COD) or prepaid is paid."""
+    if customer_phone:
+        try:
+            send_order_with_customer(customer_phone, order_number, customer_name or "Customer")
+        except Exception:
+            logger.exception("Customer order SMS failed (order=%s)", order_number)
+    if hotel_phone:
+        try:
+            send_order_alert(hotel_phone, order_number)
+        except Exception:
+            logger.exception("Hotel SMS alert failed (order=%s)", order_number)
+    for admin_phone in ADMIN_ORDER_ALERT_PHONES:
+        try:
+            send_order_alert(admin_phone, order_number)
+        except Exception:
+            logger.exception(
+                "Admin SMS alert failed (phone=%s, order=%s)",
+                admin_phone, order_number,
+            )

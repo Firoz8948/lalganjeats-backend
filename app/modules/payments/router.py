@@ -411,12 +411,33 @@ def _mark_order_paid_from_payu(db: Session, params: dict) -> Order | None:
     db.commit()
 
     restaurant = order.restaurant
+    hotel_phone = None
     if restaurant:
         hotel_phone = restaurant.phone or (
             restaurant.owner.phone if getattr(restaurant, "owner", None) else None
         )
-        if hotel_phone:
-            sms_mod.send_order_alert(hotel_phone, order.order_number)
+
+    customer = order.customer
+    customer_name = "Customer"
+    if customer:
+        customer_name = (customer.full_name or "").strip() or "Customer"
+        if customer_name.lower().startswith("user_"):
+            from app.modules.users.models import CustomerProfile
+            prof = (
+                db.query(CustomerProfile)
+                .filter(CustomerProfile.user_id == customer.id)
+                .first()
+            )
+            if prof and (prof.full_name or "").strip():
+                customer_name = prof.full_name.strip()
+        customer_name = customer_name.split()[0]
+
+    sms_mod.notify_new_order(
+        order_number=order.order_number,
+        customer_phone=customer.phone if customer else None,
+        customer_name=customer_name,
+        hotel_phone=hotel_phone,
+    )
 
     return order
 

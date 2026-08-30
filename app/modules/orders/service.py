@@ -1,6 +1,7 @@
 # backend/app/modules/orders/service.py
 from __future__ import annotations
 
+import logging
 import random
 from datetime import datetime
 from decimal import Decimal
@@ -9,6 +10,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core import sms
+
+logger = logging.getLogger(__name__)
 from app.core.maps import estimate_customer_eta_minutes, haversine_km
 from app.modules.orders.models import Order, OrderItem
 from app.modules.orders.schemas import PlaceOrderRequest
@@ -90,6 +93,22 @@ def validate_payment_method(
             f"Cash on delivery is available only below ₹{threshold:g}. "
             "Please choose prepaid payment.",
         )
+
+
+def _sms_customer_name(db: Session, customer: User) -> str:
+    name = (customer.full_name or "").strip()
+    if not name or name.lower().startswith("user_"):
+        from app.modules.users.models import CustomerProfile
+        prof = (
+            db.query(CustomerProfile)
+            .filter(CustomerProfile.user_id == customer.id)
+            .first()
+        )
+        if prof and (prof.full_name or "").strip():
+            name = prof.full_name.strip()
+    if not name:
+        return "Customer"
+    return name.split()[0]
 
 
 def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict:
@@ -340,13 +359,18 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     db.commit()
     db.refresh(order)
 
-    # Notify hotel only when payment is already settled (COD) or not required.
+    # Notify hotel + customer + admins only when payment is already settled
+    # (COD) or not required. Online prepaid waits for PayU success.
     if order.payment_method != "online" or order.payment_status == "paid":
         hotel_phone = restaurant.phone or (
             restaurant.owner.phone if getattr(restaurant, "owner", None) else None
         )
-        if hotel_phone:
-            sms.send_order_alert(hotel_phone, order.order_number)
+        sms.notify_new_order(
+            order_number=order.order_number,
+            customer_phone=customer.phone,
+            customer_name=_sms_customer_name(db, customer),
+            hotel_phone=hotel_phone,
+        )
 
         # Send FCM background push to restaurant owner
         if getattr(restaurant, "owner", None) and getattr(restaurant.owner, "fcm_token", None):
@@ -358,13 +382,6 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
                     f"You received a new order #{order.order_number}. Accept now and cook it!",
                     {"order_id": str(order.id), "type": "new_order"},
                 )
-            except Exception:
-                pass
-
-        # SMS alert to admin phone numbers on every new order
-        for admin_phone in ("9670517135", "9721054930"):
-            try:
-                sms.send_order_alert(admin_phone, order.order_number)
             except Exception:
                 pass
 
