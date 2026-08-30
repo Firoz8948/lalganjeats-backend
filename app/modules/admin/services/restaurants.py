@@ -512,24 +512,46 @@ def update_menu_item(
     item.is_veg = payload.is_veg
     item.is_bestseller = payload.is_bestseller
 
-    for existing in item.variants or []:
-        existing.is_deleted = True
-        existing.is_available = False
+    # Upsert by label. Delete+insert of the same label violates
+    # uq_menu_item_variant_label and rolls the whole item update back.
+    existing_by_label = {
+        (v.label or "").strip().lower(): v
+        for v in (item.variants or [])
+    }
+    keep_ids: set[int] = set()
     for label, transfer, display, mrp, sort_order in priced_variants:
-        db.add(
-            MenuItemVariant(
-                menu_item_id=item.id,
-                label=label,
-                price=display,
-                actual_price=transfer,
-                original_price=mrp,
-                sort_order=sort_order,
-                is_available=True,
-                is_deleted=False,
+        key = label.strip().lower()
+        row = existing_by_label.get(key)
+        if row:
+            row.label = label
+            row.price = display
+            row.actual_price = transfer
+            row.original_price = mrp
+            row.sort_order = sort_order
+            row.is_available = True
+            row.is_deleted = False
+            if row.id is not None:
+                keep_ids.add(row.id)
+        else:
+            db.add(
+                MenuItemVariant(
+                    menu_item_id=item.id,
+                    label=label,
+                    price=display,
+                    actual_price=transfer,
+                    original_price=mrp,
+                    sort_order=sort_order,
+                    is_available=True,
+                    is_deleted=False,
+                )
             )
-        )
+    for row in item.variants or []:
+        if row.id not in keep_ids:
+            row.is_deleted = True
+            row.is_available = False
 
     db.commit()
+    db.expire_all()
     refreshed = (
         db.query(MenuItem)
         .options(
