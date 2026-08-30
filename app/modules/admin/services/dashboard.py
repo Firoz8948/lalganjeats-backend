@@ -46,16 +46,22 @@ def delivered_revenue_filters(tenant_id: int | None):
 def _serialize_live_order(o: Order) -> dict:
     restaurant = o.restaurant
     partner = o.delivery_partner
+    customer = o.customer
     return {
         "id": o.id,
         "order_number": o.order_number,
         "status": o.status,
         "total_amount": float(o.total_amount or 0),
+        "payment_method": o.payment_method,
+        "payment_status": o.payment_status,
         "created_at": o.created_at.isoformat() if o.created_at else None,
         "restaurant_name": restaurant.name if restaurant else None,
         "restaurant_phone": restaurant.phone if restaurant else None,
         "delivery_partner_name": partner.full_name if partner else None,
         "delivery_partner_phone": partner.phone if partner else None,
+        "customer_name": customer.full_name if customer else None,
+        "customer_phone": customer.phone if customer else None,
+        "delivery_address": o.delivery_address,
     }
 
 
@@ -91,6 +97,7 @@ def get_dashboard(db: Session, current: User):
         .options(
             joinedload(Order.restaurant),
             joinedload(Order.delivery_partner),
+            joinedload(Order.customer),
         )
         .filter(Order.status.in_(LIVE_ORDER_STATUSES))
     )

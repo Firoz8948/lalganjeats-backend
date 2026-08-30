@@ -361,6 +361,13 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
             except Exception:
                 pass
 
+        # SMS alert to admin phone numbers on every new order
+        for admin_phone in ("9670517135", "9721054930"):
+            try:
+                sms.send_order_alert(admin_phone, order.order_number)
+            except Exception:
+                pass
+
     return {
         "id": order.id,
         "order_number": order.order_number,
