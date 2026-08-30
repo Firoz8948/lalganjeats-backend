@@ -226,10 +226,22 @@ def partner_password_login(
 
 # ── Admin Login (tenant) ──────────────────────────────────
 def admin_login(username: str, password: str, db: Session) -> dict:
+    u = username.strip()
+    digits = "".join(c for c in u if c.isdigit())
+    phone_10 = digits[-10:] if len(digits) >= 10 else None
+
+    filters = [
+        User.email.ilike(u),
+        User.username.ilike(u),
+        User.phone == u,
+    ]
+    if phone_10:
+        filters.append(User.phone == phone_10)
+
     user = db.query(User).filter(
-        User.email == username,
-        User.role == "admin",
-        User.is_active == True
+        or_(*filters),
+        User.role.in_(["admin", "super_admin"]),
+        User.is_active == True,
     ).first()
 
     if not user or not user.password_hash:
