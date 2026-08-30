@@ -194,6 +194,29 @@ def get_completed_orders_paginated(
     }
 
 
+from app.modules.restaurants.models import Restaurant
+from app.modules.users.models import User
+
+
+def _parse_range(start_date: str | None, end_date: str | None):
+    sd, ed = None, None
+    if start_date:
+        try:
+            sd = datetime.fromisoformat(start_date)
+            if sd.tzinfo is None:
+                sd = sd.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            ed = datetime.fromisoformat(end_date)
+            if ed.tzinfo is None:
+                ed = ed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return sd, ed
+
+
 def get_delivery_partner_earnings(
     db: Session,
     current: User,
@@ -201,53 +224,116 @@ def get_delivery_partner_earnings(
     start_date: str | None = None,
     end_date: str | None = None,
 ):
-    """Delivery partner earnings summary, optionally filtered by date range."""
-    base_q = db.query(DeliveryEarning)
+    """Delivery partner earnings summary with settled/unsettled amounts, filtered by date range."""
+    sd, ed = _parse_range(start_date, end_date)
+
+    partner_q = db.query(User).filter(User.role == "delivery_partner")
     if current.tenant_id:
-        base_q = base_q.join(
-            Order, Order.id == DeliveryEarning.order_id
-        ).filter(Order.tenant_id == current.tenant_id)
+        partner_q = partner_q.filter(User.tenant_id == current.tenant_id)
+    partners = partner_q.order_by(User.full_name).all()
 
-    if start_date:
-        try:
-            sd = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
-            base_q = base_q.filter(DeliveryEarning.created_at >= sd)
-        except ValueError:
-            pass
-    if end_date:
-        try:
-            ed = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
-            base_q = base_q.filter(DeliveryEarning.created_at <= ed)
-        except ValueError:
-            pass
+    result = []
+    for p in partners:
+        base_eq = db.query(DeliveryEarning).filter(DeliveryEarning.delivery_partner_id == p.id)
+        if current.tenant_id:
+            base_eq = base_eq.join(Order, Order.id == DeliveryEarning.order_id).filter(Order.tenant_id == current.tenant_id)
 
-    rows = (
-        base_q.with_entities(
-            DeliveryEarning.delivery_partner_id,
-            func.sum(DeliveryEarning.amount_earned).label("total_earned"),
-            func.count(DeliveryEarning.id).label("total_orders"),
-        )
-        .group_by(DeliveryEarning.delivery_partner_id)
-        .all()
-    )
+        # Period earnings
+        period_eq = base_eq
+        if sd:
+            period_eq = period_eq.filter(DeliveryEarning.created_at >= sd)
+        if ed:
+            period_eq = period_eq.filter(DeliveryEarning.created_at <= ed)
 
-    partner_ids = [r.delivery_partner_id for r in rows]
-    partners = (
-        db.query(User)
-        .filter(User.id.in_(partner_ids))
-        .all()
-    ) if partner_ids else []
-    partner_map = {p.id: p for p in partners}
+        # Settled in this period
+        settled_eq = base_eq.filter(DeliveryEarning.transfer_status.in_(["settled", "completed"]))
+        if sd:
+            settled_eq = settled_eq.filter(
+                func.coalesce(DeliveryEarning.settled_at, DeliveryEarning.created_at) >= sd
+            )
+        if ed:
+            settled_eq = settled_eq.filter(
+                func.coalesce(DeliveryEarning.settled_at, DeliveryEarning.created_at) <= ed
+            )
 
-    return [
-        {
-            "partner_id": r.delivery_partner_id,
-            "name": partner_map[r.delivery_partner_id].full_name
-                if r.delivery_partner_id in partner_map else None,
-            "phone": partner_map[r.delivery_partner_id].phone
-                if r.delivery_partner_id in partner_map else None,
-            "total_earned": round(float(r.total_earned or 0), 2),
-            "total_orders": int(r.total_orders or 0),
-        }
-        for r in rows
-    ]
+        # Unsettled
+        unsettled_eq = period_eq.filter(DeliveryEarning.transfer_status.in_(["unsettled", "pending"]))
+
+        total_earned = period_eq.with_entities(func.coalesce(func.sum(DeliveryEarning.amount_earned), 0)).scalar() or 0.0
+        total_orders = period_eq.with_entities(func.count(DeliveryEarning.id)).scalar() or 0
+        unsettled_amount = unsettled_eq.with_entities(func.coalesce(func.sum(DeliveryEarning.amount_earned), 0)).scalar() or 0.0
+        settled_amount = settled_eq.with_entities(func.coalesce(func.sum(DeliveryEarning.amount_earned), 0)).scalar() or 0.0
+
+        if total_orders > 0 or total_earned > 0 or unsettled_amount > 0 or settled_amount > 0 or not sd:
+            result.append({
+                "partner_id": p.id,
+                "name": p.full_name or p.phone or f"Partner #{p.id}",
+                "phone": p.phone or "—",
+                "total_earned": round(float(total_earned), 2),
+                "unsettled_amount": round(float(unsettled_amount), 2),
+                "settled_amount": round(float(settled_amount), 2),
+                "total_orders": int(total_orders),
+            })
+    return result
+
+
+def get_hotel_partner_earnings(
+    db: Session,
+    current: User,
+    *,
+    start_date: str | None = None,
+    end_date: str | None = None,
+):
+    """Hotel / Restaurant partner earnings summary with settled/unsettled amounts, filtered by date range."""
+    sd, ed = _parse_range(start_date, end_date)
+
+    rest_q = db.query(Restaurant).options(joinedload(Restaurant.owner))
+    if current.tenant_id:
+        rest_q = rest_q.filter(Restaurant.tenant_id == current.tenant_id)
+    restaurants = rest_q.order_by(Restaurant.name).all()
+
+    result = []
+    for r in restaurants:
+        base_eq = db.query(RestaurantEarning).filter(RestaurantEarning.restaurant_id == r.id)
+        if current.tenant_id:
+            base_eq = base_eq.join(Order, Order.id == RestaurantEarning.order_id).filter(Order.tenant_id == current.tenant_id)
+
+        # Period earnings
+        period_eq = base_eq
+        if sd:
+            period_eq = period_eq.filter(RestaurantEarning.created_at >= sd)
+        if ed:
+            period_eq = period_eq.filter(RestaurantEarning.created_at <= ed)
+
+        # Settled in this period
+        settled_eq = base_eq.filter(RestaurantEarning.transfer_status.in_(["settled", "completed"]))
+        if sd:
+            settled_eq = settled_eq.filter(
+                func.coalesce(RestaurantEarning.settled_at, RestaurantEarning.created_at) >= sd
+            )
+        if ed:
+            settled_eq = settled_eq.filter(
+                func.coalesce(RestaurantEarning.settled_at, RestaurantEarning.created_at) <= ed
+            )
+
+        # Unsettled
+        unsettled_eq = period_eq.filter(RestaurantEarning.transfer_status.in_(["unsettled", "pending"]))
+
+        total_earned = period_eq.with_entities(func.coalesce(func.sum(RestaurantEarning.amount_earned), 0)).scalar() or 0.0
+        total_orders = period_eq.with_entities(func.count(RestaurantEarning.id)).scalar() or 0
+        unsettled_amount = unsettled_eq.with_entities(func.coalesce(func.sum(RestaurantEarning.amount_earned), 0)).scalar() or 0.0
+        settled_amount = settled_eq.with_entities(func.coalesce(func.sum(RestaurantEarning.amount_earned), 0)).scalar() or 0.0
+
+        phone = r.phone or (r.owner.phone if r.owner else None) or "—"
+
+        if total_orders > 0 or total_earned > 0 or unsettled_amount > 0 or settled_amount > 0 or not sd:
+            result.append({
+                "restaurant_id": r.id,
+                "name": r.name,
+                "phone": phone,
+                "total_earned": round(float(total_earned), 2),
+                "unsettled_amount": round(float(unsettled_amount), 2),
+                "settled_amount": round(float(settled_amount), 2),
+                "total_orders": int(total_orders),
+            })
+    return result

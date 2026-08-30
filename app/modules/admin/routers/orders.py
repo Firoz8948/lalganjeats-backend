@@ -66,3 +66,16 @@ def get_delivery_earnings(
         db, current, start_date=start_date, end_date=end_date
     )
 
+
+@router.get("/hotel-earnings")
+def get_hotel_earnings(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    """Hotel / Restaurant partner earnings, optionally filtered by date range."""
+    return order_service.get_hotel_partner_earnings(
+        db, current, start_date=start_date, end_date=end_date
+    )
+
