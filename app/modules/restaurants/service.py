@@ -202,6 +202,8 @@ def list_public_restaurants(
         for r in restaurants
         if _restaurant_visible_for_customer(r, customer_lat, customer_lng)
     ]
+    # Prioritize open restaurants on top, closed restaurants at the bottom
+    visible.sort(key=lambda r: (not getattr(r, "is_open", False)))
     return [
         _to_public(r, i, customer_lat, customer_lng)
         for i, r in enumerate(visible)
