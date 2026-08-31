@@ -92,10 +92,11 @@ def get_restaurant_menu(restaurant_key: str, db: Session = Depends(get_db)):
     categories = (
         db.query(MenuCategory)
         .filter(MenuCategory.restaurant_id == restaurant_id, MenuCategory.is_active == True)
-        .order_by(MenuCategory.sort_order)
+        .order_by(MenuCategory.sort_order, MenuCategory.id)
         .all()
     )
     cat_map = {c.id: c.name for c in categories}
+    cat_order_map = {c.id: (c.sort_order if c.sort_order is not None else idx) for idx, c in enumerate(categories)}
 
     items = (
         db.query(MenuItem)
@@ -104,9 +105,9 @@ def get_restaurant_menu(restaurant_key: str, db: Session = Depends(get_db)):
             MenuItem.restaurant_id == restaurant_id,
             MenuItem.is_deleted == False,
         )
-        .order_by(MenuItem.sort_order, MenuItem.id)
         .all()
     )
+    items.sort(key=lambda i: (cat_order_map.get(i.category_id, 99999), i.sort_order or 0, i.id))
     result = []
     for item in items:
         variants = [

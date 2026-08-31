@@ -164,6 +164,10 @@ def toggle_open_status(
 
 
 # ── Categories ─────────────────────────────────────────────
+class CategoryReorderPayload(BaseModel):
+    category_ids: List[int]
+
+
 @router.get("/categories")
 def get_categories(
     db: Session = Depends(get_db),
@@ -173,8 +177,24 @@ def get_categories(
     cats = db.query(MenuCategory).filter(
         MenuCategory.restaurant_id == restaurant.id,
         MenuCategory.is_active == True
-    ).order_by(MenuCategory.sort_order).all()
-    return [{"id": c.id, "name": c.name} for c in cats]
+    ).order_by(MenuCategory.sort_order, MenuCategory.id).all()
+    return [{"id": c.id, "name": c.name, "sort_order": c.sort_order} for c in cats]
+
+
+@router.put("/categories/reorder")
+def reorder_categories(
+    payload: CategoryReorderPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_restaurant_owner)
+):
+    restaurant = _get_restaurant(db, current_user)
+    for index, cat_id in enumerate(payload.category_ids):
+        db.query(MenuCategory).filter(
+            MenuCategory.id == cat_id,
+            MenuCategory.restaurant_id == restaurant.id
+        ).update({"sort_order": index})
+    db.commit()
+    return {"message": "Category order updated successfully"}
 
 
 # ── Menu Items ─────────────────────────────────────────────
