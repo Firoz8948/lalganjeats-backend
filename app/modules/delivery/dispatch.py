@@ -281,6 +281,9 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         else (order.delivery_fee or 0)
     )
 
+    # Name/phone only after this partner has accepted (not on incoming offers).
+    customer = getattr(order, "customer", None) if order.delivery_partner_id else None
+
     return {
         "id": order.id,
         "order_number": order.order_number,
@@ -290,6 +293,8 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         "restaurant_lat": r_lat,
         "restaurant_lng": r_lng,
         "delivery_address": order.delivery_address,
+        "customer_name": customer.full_name if customer else None,
+        "customer_phone": customer.phone if customer else None,
         "customer_lat": c_lat,
         "customer_lng": c_lng,
         "customer_total": float(order.total_amount or 0),
