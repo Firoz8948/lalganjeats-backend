@@ -1,6 +1,6 @@
 # backend/app/modules/hotel_portal/router.py
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
 from pydantic import BaseModel
 from typing import Optional, List
@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.security import get_restaurant_owner
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuCategory
 from app.modules.orders.models import Order
+from app.modules.users.models import User
 from app.modules.orders.status_meta import (
     HOTEL_SETTABLE_STATUSES,
     customer_status_meta,
@@ -349,7 +350,17 @@ def get_orders(
 ):
     restaurant = _get_restaurant(db, current_user)
 
-    query = db.query(Order).filter(Order.restaurant_id == restaurant.id)
+    query = (
+        db.query(Order)
+        .options(
+            joinedload(Order.items),
+            joinedload(Order.customer),
+            joinedload(Order.delivery_partner).joinedload(
+                User.delivery_partner_details
+            ),
+        )
+        .filter(Order.restaurant_id == restaurant.id)
+    )
 
     if status == "active":
         query = query.filter(

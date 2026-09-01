@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from pydantic import BaseModel
 
@@ -416,8 +416,20 @@ def list_my_orders(
         q = q.filter(Order.status.in_(["accepted", "ready", "picked_up"]))
     elif filter == "delivered":
         q = q.filter(Order.status == "delivered")
-    orders = q.order_by(Order.created_at.desc()).limit(100).all()
-    return [dispatch.serialize_offer_order(db, o, current_user) for o in orders]
+    orders = (
+        q.options(
+            joinedload(Order.items),
+            joinedload(Order.restaurant),
+            joinedload(Order.customer),
+        )
+        .order_by(Order.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    return [
+        dispatch.serialize_offer_order(db, o, current_user, for_list=True)
+        for o in orders
+    ]
 
 
 @router.get("/earnings")

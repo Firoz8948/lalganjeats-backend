@@ -513,6 +513,19 @@ async def payu_success(
                 f"{front}/deliverypartner/earnings?remit=success&id={remit.id}",
                 status_code=303,
             )
+        # Hash/status failed — keep cash on hand; unlink any pending attach.
+        from app.modules.payments.cash_remittance import release_pending_remittance_orders
+        from app.modules.payments.models import CashRemittance
+
+        remit_id = None
+        try:
+            remit_id = int(params.get("udf1") or 0) or None
+        except (TypeError, ValueError):
+            remit_id = None
+        if remit_id:
+            pending = db.query(CashRemittance).filter(CashRemittance.id == remit_id).first()
+            if pending:
+                release_pending_remittance_orders(db, pending)
         return RedirectResponse(
             f"{front}/deliverypartner/earnings?remit=failed",
             status_code=303,

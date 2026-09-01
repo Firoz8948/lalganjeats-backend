@@ -1,5 +1,5 @@
 # backend/app/modules/payments/models.py
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -107,6 +107,7 @@ class CashRemittance(Base):
     )
     amount = Column(Float, nullable=False)
     status = Column(String(20), default="pending", nullable=False, index=True)
+    order_ids = Column(Text, nullable=True)
     payu_txnid = Column(String(100), nullable=True, index=True)
     payu_mihpayid = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

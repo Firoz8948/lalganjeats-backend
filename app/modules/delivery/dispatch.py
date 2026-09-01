@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.maps import distance_and_drive_minutes, maps_embed_url
+from app.core.maps import distance_and_drive_minutes, haversine_km, maps_embed_url
 from app.core import sms
 from app.modules.orders.models import Order, DeliveryProfile, DeliveryOffer
 from app.modules.users.models import User
@@ -248,20 +248,18 @@ def reject_offer(db: Session, order_id: int, partner: User) -> None:
     dp_webhook.on_offer_rejected(order_id, partner.id)
 
 
-def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
+def serialize_offer_order(
+    db: Session,
+    order: Order,
+    partner: User,
+    *,
+    for_list: bool = False,
+) -> dict:
     r = order.restaurant
     r_lat = float(r.latitude) if r and r.latitude is not None else None
     r_lng = float(r.longitude) if r and r.longitude is not None else None
     c_lat = float(order.delivery_latitude) if order.delivery_latitude is not None else None
     c_lng = float(order.delivery_longitude) if order.delivery_longitude is not None else None
-
-    profile = (
-        db.query(DeliveryProfile)
-        .filter(DeliveryProfile.user_id == partner.id)
-        .first()
-    )
-    p_lat = float(profile.current_latitude) if profile and profile.current_latitude is not None else None
-    p_lng = float(profile.current_longitude) if profile and profile.current_longitude is not None else None
 
     to_restaurant_km = None
     restaurant_to_customer_km = (
@@ -271,13 +269,25 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
     map_to_customer = None
 
     if restaurant_to_customer_km is None and r_lat is not None and c_lat is not None:
-        restaurant_to_customer_km, _ = distance_and_drive_minutes(r_lat, r_lng, c_lat, c_lng)
+        if for_list:
+            restaurant_to_customer_km = haversine_km(r_lat, r_lng, c_lat, c_lng)
+        else:
+            restaurant_to_customer_km, _ = distance_and_drive_minutes(r_lat, r_lng, c_lat, c_lng)
 
-    if p_lat is not None and r_lat is not None:
-        to_restaurant_km, _ = distance_and_drive_minutes(p_lat, p_lng, r_lat, r_lng)
-        map_to_restaurant = maps_embed_url(p_lat, p_lng, r_lat, r_lng)
-    if p_lat is not None and c_lat is not None:
-        map_to_customer = maps_embed_url(p_lat, p_lng, c_lat, c_lng)
+    if not for_list:
+        profile = (
+            db.query(DeliveryProfile)
+            .filter(DeliveryProfile.user_id == partner.id)
+            .first()
+        )
+        p_lat = float(profile.current_latitude) if profile and profile.current_latitude is not None else None
+        p_lng = float(profile.current_longitude) if profile and profile.current_longitude is not None else None
+
+        if p_lat is not None and r_lat is not None:
+            to_restaurant_km, _ = distance_and_drive_minutes(p_lat, p_lng, r_lat, r_lng)
+            map_to_restaurant = maps_embed_url(p_lat, p_lng, r_lat, r_lng)
+        if p_lat is not None and c_lat is not None:
+            map_to_customer = maps_embed_url(p_lat, p_lng, c_lat, c_lng)
 
     payout = float(
         order.delivery_partner_earning
