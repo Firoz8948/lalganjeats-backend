@@ -47,7 +47,9 @@ def validate_promocode(
     mobile_app-only + web → download_required popup payload.
     """
     tenant_id = getattr(current, "tenant_id", None) if current else None
-    return service.validate_promo(db, payload, tenant_id=tenant_id)
+    return service.validate_promo(
+        db, payload, tenant_id=tenant_id, current_user=current
+    )
 
 
 @public_router.get("/active", response_model=list[schemas.PublicPromoOut])

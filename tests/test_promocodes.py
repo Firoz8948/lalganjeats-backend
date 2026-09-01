@@ -24,6 +24,7 @@ def _promo(**kwargs):
         max_uses=0,
         remaining_uses=0,
         expires_at=None,
+        audience="all",
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -110,3 +111,42 @@ def test_validate_flat_applies_when_cart_ok(monkeypatch):
     assert result.valid is True
     assert result.discount_amount == Decimal("50.00")
     assert result.discount_type == "flat"
+
+
+def test_validate_rejects_repeat_use_same_mobile(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+
+    promo = _promo(code="LALGANJ39", audience="all")
+    monkeypatch.setattr(promo_service.repo, "get_by_code", _FakeRepo(promo).get_by_code)
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+    monkeypatch.setattr(promo_service, "_has_used_promo", lambda *a, **k: True)
+
+    user = SimpleNamespace(id=54, phone="9876543210")
+    result = validate_promo(
+        db=SimpleNamespace(commit=lambda: None),
+        payload=PromoValidateRequest(code="LALGANJ39", client_channel="web"),
+        current_user=user,
+    )
+    assert result.valid is False
+    assert result.reason == "one_time"
+    assert result.message == "APPLICABLE FOR ONE TIME ONLY"
+
+
+def test_validate_rejects_existing_customer_for_new_users(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+
+    promo = _promo(code="WELCOME", audience="new_users")
+    monkeypatch.setattr(promo_service.repo, "get_by_code", _FakeRepo(promo).get_by_code)
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+    monkeypatch.setattr(promo_service, "_has_used_promo", lambda *a, **k: False)
+    monkeypatch.setattr(promo_service, "_is_new_customer", lambda *a, **k: False)
+
+    user = SimpleNamespace(id=54, phone="9876543210")
+    result = validate_promo(
+        db=SimpleNamespace(commit=lambda: None),
+        payload=PromoValidateRequest(code="WELCOME", client_channel="web"),
+        current_user=user,
+    )
+    assert result.valid is False
+    assert result.reason == "new_users"
+    assert result.message == "APPLICABLE FOR NEW USERS"

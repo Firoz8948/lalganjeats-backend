@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 ClientChannel = Literal["web", "android_app", "ios_app"]
 PromoChannel = Literal["all", "mobile_app"]
+PromoAudience = Literal["all", "new_users"]
 DiscountType = Literal["percent", "flat"]
 
 
 class PromoCreateRequest(BaseModel):
     code: str = Field(..., min_length=2, max_length=40)
     channel: PromoChannel = "all"
+    audience: PromoAudience = "all"
     discount_type: DiscountType = "percent"
     percent_off: Optional[Decimal] = Field(None, ge=0, le=100)
     flat_off: Optional[Decimal] = Field(None, ge=0)
@@ -50,6 +52,7 @@ class PromoCreateRequest(BaseModel):
 
 class PromoUpdateRequest(BaseModel):
     channel: Optional[PromoChannel] = None
+    audience: Optional[PromoAudience] = None
     discount_type: Optional[DiscountType] = None
     percent_off: Optional[Decimal] = Field(None, ge=0, le=100)
     flat_off: Optional[Decimal] = Field(None, ge=0)
@@ -66,6 +69,7 @@ class PromoOut(BaseModel):
     id: int
     code: str
     channel: str
+    audience: str = "all"
     discount_type: str = "percent"
     percent_off: Optional[Decimal]
     flat_off: Optional[Decimal] = None

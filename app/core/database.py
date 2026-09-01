@@ -94,6 +94,11 @@ def run_auto_migrations():
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_initiated_at TIMESTAMPTZ;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_online_paid_at TIMESTAMPTZ;",
         "CREATE INDEX IF NOT EXISTS ix_orders_collection_txnid ON orders(collection_txnid) WHERE collection_txnid IS NOT NULL;",
+
+        # Promo audience (all vs new users) + usage tracked by mobile number.
+        "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS audience VARCHAR(20) DEFAULT 'all';",
+        "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(15);",
+        "CREATE INDEX IF NOT EXISTS ix_promo_code_usages_customer_phone ON promo_code_usages(customer_phone);",
     ]
     for stmt in statements:
         try:

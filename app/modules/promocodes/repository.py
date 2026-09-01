@@ -53,6 +53,27 @@ def list_usages(db: Session, promo_id: int) -> list[PromoCodeUsage]:
     )
 
 
+def list_usages_for_phone(
+    db: Session, promo_id: int, phone_digits: str, user_id: int | None = None
+) -> PromoCodeUsage | None:
+    """Find an existing usage of this promo by this mobile / account."""
+    if not phone_digits and not user_id:
+        return None
+    q = db.query(PromoCodeUsage).filter(PromoCodeUsage.promo_code_id == promo_id)
+    if phone_digits and user_id:
+        from sqlalchemy import or_
+
+        return q.filter(
+            or_(
+                PromoCodeUsage.customer_phone == phone_digits,
+                PromoCodeUsage.user_id == user_id,
+            )
+        ).first()
+    if phone_digits:
+        return q.filter(PromoCodeUsage.customer_phone == phone_digits).first()
+    return q.filter(PromoCodeUsage.user_id == user_id).first()
+
+
 def create(db: Session, promo: PromoCode) -> PromoCode:
     db.add(promo)
     db.flush()
