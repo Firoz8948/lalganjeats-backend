@@ -34,12 +34,6 @@ def calculate_split(
         2,
     )
 
-    # Legacy % fee is kept for older order snapshots / reporting only.
-    platform_fee_legacy = round(
-        (settings.platform_fee_percent / 100) * display_total,
-        2,
-    )
-
     breakdown = build_order_price_breakdown(
         display_price=display_total,
         hotel_payout=actual_price_total,
@@ -55,7 +49,7 @@ def calculate_split(
         display_total=c.display_price,
         actual_price_total=round(float(actual_price_total), 2),
         delivery_charge=c.delivery_charge,
-        platform_fee=platform_fee_legacy,
+        platform_fee=c.platform_fee,
         platform_charge=c.platform_fee,
         hotel_earning=a.hotel_payout,
         delivery_earning=a.delivery_payout,

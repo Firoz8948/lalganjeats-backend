@@ -142,5 +142,72 @@ def test_discount_reduces_customer_total_and_admin_profit():
     assert split.admin_earning == 22
 
 
+def test_delhi_chaap_promo_breakdown_keeps_platform_charge_at_two():
+    """LALGANJ100: platform charge stays ₹2; loss is the coupon, not extra fee."""
+    bd = build_order_price_breakdown(
+        display_price=156,
+        hotel_payout=120,
+        platform_fee=2,
+        delivery_charge=20,
+        discount=100,
+    )
+    assert bd.customer.platform_fee == 2
+    assert bd.customer.customer_total == 78
+    assert bd.admin.platform_charge == 2
+    assert bd.admin.menu_margin == 36
+    assert bd.admin.promo_cost == 100
+    # 2 + 36 − 100 = −62
+    assert bd.admin.admin_profit == -62
+    assert bd.admin.is_loss is True
+
+
+def test_payment_collection_prepaid_online():
+    from app.modules.payments.breakdown import payment_collection_from_order
+
+    order = SimpleNamespace(
+        payment_method="online",
+        payment_status="paid",
+        total_amount=78,
+        cash_collected=None,
+        online_collected=None,
+    )
+    pay = payment_collection_from_order(order)
+    assert pay["payment_label"] == "Online"
+    assert pay["online_amount"] == 78
+    assert pay["cash_collected"] == 0
+
+
+def test_payment_collection_cod_cash():
+    from app.modules.payments.breakdown import payment_collection_from_order
+
+    order = SimpleNamespace(
+        payment_method="cash",
+        payment_status="paid",
+        total_amount=78,
+        cash_collected=78,
+        online_collected=None,
+    )
+    pay = payment_collection_from_order(order)
+    assert pay["payment_label"] == "COD"
+    assert pay["cash_collected"] == 78
+    assert pay["online_amount"] == 0
+
+
+def test_payment_collection_split_doorstep():
+    from app.modules.payments.breakdown import payment_collection_from_order
+
+    order = SimpleNamespace(
+        payment_method="split",
+        payment_status="paid",
+        total_amount=78,
+        cash_collected=50,
+        online_collected=28,
+    )
+    pay = payment_collection_from_order(order)
+    assert pay["payment_label"] == "Split"
+    assert pay["cash_collected"] == 50
+    assert pay["online_amount"] == 28
+
+
 def test_new_manual_earning_is_unsettled():
     assert initial_earning_status() == "unsettled"

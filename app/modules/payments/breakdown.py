@@ -43,6 +43,10 @@ class AdminPriceView:
     delivery_payout: float
     admin_profit: float
     is_loss: bool
+    # Explains admin_profit: platform_charge + menu_margin − promo_cost
+    platform_charge: float = 0.0
+    menu_margin: float = 0.0
+    promo_cost: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -119,12 +123,24 @@ def build_order_price_breakdown(
         delivery_charge=delivery_charge,
         discount=discount,
     )
-    admin = admin_price_view(
+    payout = delivery_charge if delivery_payout is None else delivery_payout
+    base = admin_price_view(
         customer_total=customer.customer_total,
         hotel_payout=hotel_payout,
-        delivery_payout=(
-            delivery_charge if delivery_payout is None else delivery_payout
-        ),
+        delivery_payout=payout,
+    )
+    platform = _money(platform_fee)
+    hotel = _money(hotel_payout)
+    display = _money(display_price)
+    promo = _money(discount)
+    admin = AdminPriceView(
+        hotel_payout=base.hotel_payout,
+        delivery_payout=base.delivery_payout,
+        admin_profit=base.admin_profit,
+        is_loss=base.is_loss,
+        platform_charge=platform,
+        menu_margin=_money(display - hotel),
+        promo_cost=promo,
     )
     return OrderPriceBreakdown(customer=customer, admin=admin)
 
@@ -151,3 +167,34 @@ def breakdown_from_order(order: Any) -> OrderPriceBreakdown:
         discount=float(discount),
         delivery_payout=float(delivery_payout),
     )
+
+
+def payment_collection_from_order(order: Any) -> dict[str, Any]:
+    """How this order was paid: Online amount vs COD cash collected."""
+    method = (getattr(order, "payment_method", None) or "cash").strip().lower()
+    status = (getattr(order, "payment_status", None) or "").strip().lower()
+    due = _money(getattr(order, "total_amount", 0))
+    cash = _money(getattr(order, "cash_collected", 0))
+    online = _money(getattr(order, "online_collected", 0))
+
+    # Prepaid PayU: complete_delivery stores 0/0 and keeps method=online.
+    if method == "online" and status == "paid" and cash == 0 and online == 0:
+        online = due
+    # Legacy COD marked paid with no cash snapshot.
+    elif method in ("cash", "cod") and status == "paid" and cash == 0 and online == 0:
+        cash = due
+
+    if cash > 0 and online > 0:
+        label = "Split"
+    elif online > 0:
+        label = "Online"
+    else:
+        label = "COD"
+
+    return {
+        "payment_method": method,
+        "payment_label": label,
+        "payment_status": status or "pending",
+        "online_amount": online,
+        "cash_collected": cash,
+    }

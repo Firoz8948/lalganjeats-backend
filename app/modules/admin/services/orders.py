@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.models import Order
 from app.modules.orders.status_meta import ORDER_STATUSES
-from app.modules.payments.breakdown import breakdown_from_order
+from app.modules.payments.breakdown import breakdown_from_order, payment_collection_from_order
 from app.modules.payments.models import DeliveryEarning, RestaurantEarning
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.users.models import User
@@ -124,16 +124,25 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         customer = view.customer
         admin = view.admin
 
+    pay = payment_collection_from_order(order)
+
     return {
         "order_id": order.id,
         "order_number": order.order_number,
         "restaurant": order.restaurant.name if order.restaurant else None,
         "customer": order.customer.full_name if order.customer else None,
         "status": order.status,
+        # Payment
+        "payment_method": pay["payment_method"],
+        "payment_label": pay["payment_label"],
+        "payment_status": pay["payment_status"],
+        "online_amount": pay["online_amount"],
+        "cash_collected": pay["cash_collected"],
         # Customer view
         "display_price": customer.display_price,
         "order_price": customer.display_price,  # backward-compatible alias
         "platform_fee": customer.platform_fee,
+        "platform_charge": customer.platform_fee,
         "delivery_charge": customer.delivery_charge,
         "discount": customer.discount,
         "customer_total": customer.customer_total,
@@ -142,6 +151,8 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         "delivery_price": admin.delivery_payout,
         "admin_profit": admin.admin_profit,
         "is_loss": admin.is_loss,
+        "menu_margin": admin.menu_margin,
+        "promo_cost": admin.promo_cost,
         "promo_code": order.promo_code,
         "customer_view": customer.as_dict(),
         "admin_view": admin.as_dict(),
