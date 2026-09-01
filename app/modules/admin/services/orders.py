@@ -29,8 +29,8 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
         query = query.filter(Order.status == status_key)
 
     orders = query.order_by(Order.created_at.desc()).limit(200).all()
-    # Touch settings once so defaults exist; list P/L uses breakdown_from_order.
-    ensure_payment_settings(db)
+    settings = ensure_payment_settings(db)
+    platform_charge = float(getattr(settings, "platform_charge_rupees", 0) or 0)
     return [
         {
             "id": order.id,
@@ -54,7 +54,9 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
             "promo_free_delivery": bool(
                 getattr(order, "promo_free_delivery", False)
             ),
-            "admin_earning": breakdown_from_order(order).admin.admin_profit,
+            "admin_earning": breakdown_from_order(
+                order, platform_charge=platform_charge
+            ).admin.admin_profit,
             "created_at": (
                 order.created_at.isoformat() if order.created_at else None
             ),
@@ -77,8 +79,9 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
     if current.tenant_id and order.tenant_id != current.tenant_id:
         raise HTTPException(404, "Order not found")
 
-    ensure_payment_settings(db)
-    view = breakdown_from_order(order)
+    settings = ensure_payment_settings(db)
+    platform_charge = float(getattr(settings, "platform_charge_rupees", 0) or 0)
+    view = breakdown_from_order(order, platform_charge=platform_charge)
     customer = view.customer
     admin = view.admin
 
@@ -116,7 +119,7 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         view = build_order_price_breakdown(
             display_price=display_price,
             hotel_payout=hotel_price,
-            platform_fee=customer.platform_fee,
+            platform_fee=platform_charge,
             delivery_charge=customer.delivery_charge,
             discount=customer.discount,
             delivery_payout=delivery_price,

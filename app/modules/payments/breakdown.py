@@ -145,15 +145,25 @@ def build_order_price_breakdown(
     return OrderPriceBreakdown(customer=customer, admin=admin)
 
 
-def breakdown_from_order(order: Any) -> OrderPriceBreakdown:
-    """Build views from a persisted Order row."""
+def breakdown_from_order(
+    order: Any,
+    platform_charge: float | None = None,
+) -> OrderPriceBreakdown:
+    """Build views from a persisted Order row.
+
+    platform_charge: when set (admin breakdown), always use the live
+    Payment Settings rupee charge so old % snapshots like ₹7.73 do not show.
+    """
     display = getattr(order, "display_total", None)
     if display is None:
         display = getattr(order, "subtotal", 0)
     hotel = getattr(order, "actual_total", None)
     if hotel is None:
         hotel = display
-    platform = getattr(order, "platform_fee", 0) or 0
+    if platform_charge is not None:
+        platform = platform_charge
+    else:
+        platform = getattr(order, "platform_fee", 0) or 0
     delivery = getattr(order, "delivery_fee", 0) or 0
     discount = getattr(order, "discount", 0) or 0
     delivery_payout = getattr(order, "delivery_partner_earning", None)

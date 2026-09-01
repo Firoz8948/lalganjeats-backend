@@ -142,6 +142,27 @@ def test_discount_reduces_customer_total_and_admin_profit():
     assert split.admin_earning == 22
 
 
+def test_admin_breakdown_uses_live_rupee_charge_not_old_percent():
+    """Old orders stored 5% as ₹7.73; admin view must still show ₹2."""
+    from app.modules.payments.breakdown import breakdown_from_order
+
+    order = SimpleNamespace(
+        display_total=154.70,
+        actual_total=119.00,
+        platform_fee=7.73,
+        delivery_fee=20,
+        discount=100,
+        delivery_partner_earning=20,
+    )
+    bd = breakdown_from_order(order, platform_charge=2)
+    assert bd.customer.platform_fee == 2
+    assert bd.admin.platform_charge == 2
+    assert bd.customer.customer_total == 76.70
+    # 2 + (154.70-119) - 100 = 2 + 35.70 - 100 = -62.30
+    assert bd.admin.menu_margin == 35.70
+    assert bd.admin.admin_profit == -62.30
+
+
 def test_delhi_chaap_promo_breakdown_keeps_platform_charge_at_two():
     """LALGANJ100: platform charge stays ₹2; loss is the coupon, not extra fee."""
     bd = build_order_price_breakdown(
