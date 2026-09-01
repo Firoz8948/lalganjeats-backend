@@ -127,7 +127,7 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         customer = view.customer
         admin = view.admin
 
-    pay = payment_collection_from_order(order)
+    pay = payment_collection_from_order(order, customer_total=customer.customer_total)
 
     return {
         "order_id": order.id,
@@ -135,9 +135,10 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         "restaurant": order.restaurant.name if order.restaurant else None,
         "customer": order.customer.full_name if order.customer else None,
         "status": order.status,
-        # Payment
+        # Payment (amounts = customer total; source = prepaid / DP QR / DP cash)
         "payment_method": pay["payment_method"],
         "payment_label": pay["payment_label"],
+        "payment_via": pay.get("payment_via"),
         "payment_status": pay["payment_status"],
         "online_amount": pay["online_amount"],
         "cash_collected": pay["cash_collected"],

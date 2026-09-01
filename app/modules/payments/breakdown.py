@@ -179,31 +179,57 @@ def breakdown_from_order(
     )
 
 
-def payment_collection_from_order(order: Any) -> dict[str, Any]:
-    """How this order was paid: Online amount vs COD cash collected."""
+def payment_collection_from_order(
+    order: Any,
+    customer_total: float | None = None,
+) -> dict[str, Any]:
+    """
+    How this order was paid. Amounts always match customer_total:
+
+    - Prepaid PayU checkout → Online
+    - Delivery-partner QR (online_collected / collection_online_paid_at) → Online
+    - Delivery-partner cash_collected → COD
+    - Both cash + QR → Split (same ratio, scaled to customer_total)
+    """
     method = (getattr(order, "payment_method", None) or "cash").strip().lower()
     status = (getattr(order, "payment_status", None) or "").strip().lower()
-    due = _money(getattr(order, "total_amount", 0))
-    cash = _money(getattr(order, "cash_collected", 0))
-    online = _money(getattr(order, "online_collected", 0))
+    billed = _money(
+        customer_total if customer_total is not None else getattr(order, "total_amount", 0)
+    )
+    cash_raw = _money(getattr(order, "cash_collected", 0))
+    online_raw = _money(getattr(order, "online_collected", 0))
+    qr_paid = bool(getattr(order, "collection_online_paid_at", None))
+    paid = status == "paid"
 
-    # Prepaid PayU: complete_delivery stores 0/0 and keeps method=online.
-    if method == "online" and status == "paid" and cash == 0 and online == 0:
-        online = due
-    # Legacy COD marked paid with no cash snapshot.
-    elif method in ("cash", "cod") and status == "paid" and cash == 0 and online == 0:
-        cash = due
+    cash = 0.0
+    online = 0.0
+    via = None
 
-    if cash > 0 and online > 0:
+    if cash_raw > 0 and (online_raw > 0 or qr_paid):
+        collected = cash_raw + max(online_raw, 0.01)
+        cash = _money(billed * (cash_raw / collected)) if paid else 0.0
+        online = _money(billed - cash) if paid else 0.0
         label = "Split"
-    elif online > 0:
+        via = "Delivery partner cash + QR"
+    elif online_raw > 0 or qr_paid:
+        online = billed if (paid or qr_paid) else 0.0
         label = "Online"
-    else:
+        via = "Delivery partner QR"
+    elif cash_raw > 0 or (paid and method in ("cash", "cod")):
+        cash = billed if paid else 0.0
         label = "COD"
+        via = "Delivery partner cash"
+    elif method == "online" or (paid and cash_raw == 0 and online_raw == 0):
+        online = billed if paid else 0.0
+        label = "Online"
+        via = "Prepaid online"
+    else:
+        label = "COD" if method in ("cash", "cod") else "Online"
 
     return {
         "payment_method": method,
         "payment_label": label,
+        "payment_via": via,
         "payment_status": status or "pending",
         "online_amount": online,
         "cash_collected": cash,

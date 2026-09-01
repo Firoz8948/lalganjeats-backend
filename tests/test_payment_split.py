@@ -188,13 +188,15 @@ def test_payment_collection_prepaid_online():
     order = SimpleNamespace(
         payment_method="online",
         payment_status="paid",
-        total_amount=78,
+        total_amount=176.70,
         cash_collected=None,
         online_collected=None,
+        collection_online_paid_at=None,
     )
-    pay = payment_collection_from_order(order)
+    pay = payment_collection_from_order(order, customer_total=76.70)
     assert pay["payment_label"] == "Online"
-    assert pay["online_amount"] == 78
+    assert pay["payment_via"] == "Prepaid online"
+    assert pay["online_amount"] == 76.70
     assert pay["cash_collected"] == 0
 
 
@@ -204,14 +206,34 @@ def test_payment_collection_cod_cash():
     order = SimpleNamespace(
         payment_method="cash",
         payment_status="paid",
-        total_amount=78,
-        cash_collected=78,
+        total_amount=176.70,
+        cash_collected=176.70,
         online_collected=None,
+        collection_online_paid_at=None,
     )
-    pay = payment_collection_from_order(order)
+    pay = payment_collection_from_order(order, customer_total=76.70)
     assert pay["payment_label"] == "COD"
-    assert pay["cash_collected"] == 78
+    assert pay["payment_via"] == "Delivery partner cash"
+    assert pay["cash_collected"] == 76.70
     assert pay["online_amount"] == 0
+
+
+def test_payment_collection_delivery_qr():
+    from app.modules.payments.breakdown import payment_collection_from_order
+
+    order = SimpleNamespace(
+        payment_method="online",
+        payment_status="paid",
+        total_amount=176.70,
+        cash_collected=None,
+        online_collected=176.70,
+        collection_online_paid_at="2026-09-01",
+    )
+    pay = payment_collection_from_order(order, customer_total=76.70)
+    assert pay["payment_label"] == "Online"
+    assert pay["payment_via"] == "Delivery partner QR"
+    assert pay["online_amount"] == 76.70
+    assert pay["cash_collected"] == 0
 
 
 def test_payment_collection_split_doorstep():
@@ -223,11 +245,14 @@ def test_payment_collection_split_doorstep():
         total_amount=78,
         cash_collected=50,
         online_collected=28,
+        collection_online_paid_at="2026-09-01",
     )
-    pay = payment_collection_from_order(order)
+    pay = payment_collection_from_order(order, customer_total=76.70)
     assert pay["payment_label"] == "Split"
-    assert pay["cash_collected"] == 50
-    assert pay["online_amount"] == 28
+    assert pay["payment_via"] == "Delivery partner cash + QR"
+    assert pay["cash_collected"] + pay["online_amount"] == 76.70
+    assert pay["cash_collected"] == 49.17
+    assert pay["online_amount"] == 27.53
 
 
 def test_new_manual_earning_is_unsettled():
