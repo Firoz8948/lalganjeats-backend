@@ -31,17 +31,15 @@ def _serialize_order(o: Order) -> dict:
         bike_name = partner_public.get("bike_info")
     restaurant_name = o.restaurant.name if o.restaurant else None
 
-    # Hotel sees ONLY seller transfer prices
+    # Hotel sees ONLY seller transfer prices, with variant on the line.
+    from app.modules.orders.item_lines import serialize_order_item
+
     items_list = []
     items_seller_sum = 0.0
     for i in o.items:
-        p = float(i.actual_price) if i.actual_price is not None else float(i.price)
-        items_seller_sum += p * i.quantity
-        items_list.append({
-            "name":     i.name,
-            "quantity": i.quantity,
-            "price":    p,
-        })
+        row = serialize_order_item(i)
+        items_seller_sum += row["line_total"]
+        items_list.append(row)
 
     seller_total = items_seller_sum if items_seller_sum > 0 else (
         float(o.actual_total) if o.actual_total is not None else float(o.total_amount)

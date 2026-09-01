@@ -264,15 +264,19 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
     p_lng = float(profile.current_longitude) if profile and profile.current_longitude is not None else None
 
     to_restaurant_km = None
-    to_customer_km = float(order.distance_km) if order.distance_km is not None else None
+    restaurant_to_customer_km = (
+        float(order.distance_km) if order.distance_km is not None else None
+    )
     map_to_restaurant = None
     map_to_customer = None
+
+    if restaurant_to_customer_km is None and r_lat is not None and c_lat is not None:
+        restaurant_to_customer_km, _ = distance_and_drive_minutes(r_lat, r_lng, c_lat, c_lng)
 
     if p_lat is not None and r_lat is not None:
         to_restaurant_km, _ = distance_and_drive_minutes(p_lat, p_lng, r_lat, r_lng)
         map_to_restaurant = maps_embed_url(p_lat, p_lng, r_lat, r_lng)
     if p_lat is not None and c_lat is not None:
-        to_customer_km, _ = distance_and_drive_minutes(p_lat, p_lng, c_lat, c_lng)
         map_to_customer = maps_embed_url(p_lat, p_lng, c_lat, c_lng)
 
     payout = float(
@@ -280,6 +284,34 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         if order.delivery_partner_earning is not None
         else (order.delivery_fee or 0)
     )
+
+    from app.modules.orders.item_lines import serialize_order_item
+    from app.modules.payments.breakdown import payment_collection_from_order
+
+    customer_total = float(order.total_amount or 0)
+    pay = payment_collection_from_order(order, customer_total=customer_total)
+
+    cash_recorded = float(order.cash_collected or 0) if getattr(order, "cash_collected", None) is not None else 0.0
+    online_recorded = float(order.online_collected or 0) if getattr(order, "online_collected", None) is not None else 0.0
+    if cash_recorded > 0 or online_recorded > 0:
+        cash_amount = cash_recorded
+        prepaid_amount = online_recorded
+    else:
+        cash_amount = float(pay["cash_collected"] or 0)
+        prepaid_amount = float(pay["online_amount"] or 0)
+
+    if cash_amount > 0 and prepaid_amount > 0:
+        payment_label = "Cash + Prepaid"
+    elif cash_amount > 0:
+        payment_label = "Cash"
+    elif prepaid_amount > 0:
+        payment_label = "Prepaid"
+    else:
+        payment_label = {
+            "COD": "Cash",
+            "Online": "Prepaid",
+            "Split": "Cash + Prepaid",
+        }.get(pay["payment_label"], pay["payment_label"])
 
     # Name/phone only after this partner has accepted (not on incoming offers).
     customer = getattr(order, "customer", None) if order.delivery_partner_id else None
@@ -297,24 +329,30 @@ def serialize_offer_order(db: Session, order: Order, partner: User) -> dict:
         "customer_phone": customer.phone if customer else None,
         "customer_lat": c_lat,
         "customer_lng": c_lng,
-        "customer_total": float(order.total_amount or 0),
+        "customer_total": customer_total,
         "payout": payout,
-        "distance_km_restaurant_to_customer": to_customer_km,
+        "distance_km_restaurant_to_customer": restaurant_to_customer_km,
         "distance_km_to_restaurant": to_restaurant_km,
         "eta_minutes": order.eta_minutes,
         "map_to_restaurant": map_to_restaurant,
         "map_to_customer": map_to_customer if order.status == "picked_up" else None,
         "payment_method": order.payment_method,
         "payment_status": order.payment_status,
+        "payment_label": payment_label,
+        "payment_via": pay.get("payment_via"),
+        "prepaid_amount": prepaid_amount,
+        "cash_amount": cash_amount,
         "otp_verified": bool(getattr(order, "delivery_otp_verified_at", None)),
         "cash_collected": (
             float(order.cash_collected)
             if getattr(order, "cash_collected", None) is not None
             else None
         ),
+        "online_collected": (
+            float(order.online_collected)
+            if getattr(order, "online_collected", None) is not None
+            else None
+        ),
         "created_at": order.created_at.isoformat() if order.created_at else None,
-        "items": [
-            {"name": i.name, "quantity": i.quantity, "price": float(i.actual_price or i.price)}
-            for i in order.items
-        ],
+        "items": [serialize_order_item(i) for i in (order.items or [])],
     }
