@@ -308,6 +308,32 @@ def test_display_payment_mode_labels():
     assert d["payment_mode"] == "cod"
     assert d["payment_mode_label"] == "COD"
 
+    unpaid = SimpleNamespace(
+        payment_method="online",
+        payment_status="pending",
+        total_amount=100,
+        cash_collected=None,
+        online_collected=None,
+        collection_online_paid_at=None,
+    )
+    d = display_payment_mode(unpaid, customer_total=100)
+    assert d["payment_mode"] == "pending"
+    assert d["payment_mode_label"] == "Payment pending"
+    assert d["payment_verified"] is False
+
+    failed = SimpleNamespace(
+        payment_method="online",
+        payment_status="failed",
+        total_amount=100,
+        cash_collected=None,
+        online_collected=None,
+        collection_online_paid_at=None,
+    )
+    d = display_payment_mode(failed, customer_total=100)
+    assert d["payment_mode"] == "failed"
+    assert d["payment_mode_label"] == "Payment failed"
+    assert d["payment_verified"] is False
+
 
 def test_new_manual_earning_is_unsettled():
     assert initial_earning_status() == "unsettled"

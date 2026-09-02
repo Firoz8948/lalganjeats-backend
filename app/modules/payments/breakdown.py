@@ -251,21 +251,23 @@ def display_payment_mode(
     pay = payment_collection_from_order(order, customer_total=customer_total)
     via = pay.get("payment_via") or ""
     label = pay["payment_label"]
-    paid = pay["payment_status"] == "paid"
+    status = (pay.get("payment_status") or "").lower()
+    paid = status == "paid"
+    failed = status == "failed"
     qr_paid = bool(getattr(order, "collection_online_paid_at", None))
 
-    if label == "Split":
-        mode, mode_label = "split", "Split"
-        verified = paid
+    if failed and via == "Prepaid online":
+        mode, mode_label, verified = "failed", "Payment failed", False
+    elif label == "Split":
+        mode, mode_label, verified = "split", "Split", paid
     elif via == "Delivery partner QR":
-        mode, mode_label = "dp_qr", "Paid in delivery partner QR"
-        verified = paid or qr_paid
+        mode, mode_label, verified = "dp_qr", "Paid in delivery partner QR", paid or qr_paid
     elif label == "COD":
-        mode, mode_label = "cod", "COD"
-        verified = paid
+        mode, mode_label, verified = "cod", "COD", paid
+    elif paid and via == "Prepaid online":
+        mode, mode_label, verified = "paid", "Paid", True
     else:
-        mode, mode_label = "paid", "Paid"
-        verified = paid and via == "Prepaid online"
+        mode, mode_label, verified = "pending", "Payment pending", False
 
     return {
         **pay,

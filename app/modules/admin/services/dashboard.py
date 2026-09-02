@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.models import Order
 from app.modules.orders.status_meta import LIVE_ORDER_STATUSES
+from app.modules.orders.payment_state import fulfillment_sql_filter
 from app.modules.payments.breakdown import display_payment_mode
 from app.modules.promocodes.models import PromoCode
 from app.modules.restaurants.models import Restaurant
@@ -106,6 +107,7 @@ def get_dashboard(db: Session, current: User):
             joinedload(Order.customer),
         )
         .filter(Order.status.in_(LIVE_ORDER_STATUSES))
+        .filter(fulfillment_sql_filter(Order))
     )
     if current.tenant_id:
         live_orders_q = live_orders_q.filter(Order.tenant_id == current.tenant_id)

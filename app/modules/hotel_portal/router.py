@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.security import get_restaurant_owner
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuCategory
 from app.modules.orders.models import Order
+from app.modules.orders.payment_state import fulfillment_sql_filter
 from app.modules.users.models import User
 from app.modules.orders.status_meta import (
     HOTEL_SETTABLE_STATUSES,
@@ -99,7 +100,9 @@ def get_dashboard(
     restaurant = _get_restaurant(db, current_user)
 
     total_orders   = db.query(Order).filter(
-                        Order.restaurant_id == restaurant.id).count()
+                        Order.restaurant_id == restaurant.id,
+                        fulfillment_sql_filter(Order),
+                    ).count()
     pending_orders = db.query(Order).filter(
                         Order.restaurant_id == restaurant.id,
                         Order.status == "pending",
@@ -128,7 +131,8 @@ def get_dashboard(
     total_revenue = sum(_seller_order_total(o) for o in picked_up_or_delivered_orders)
 
     recent_orders = db.query(Order).filter(
-        Order.restaurant_id == restaurant.id
+        Order.restaurant_id == restaurant.id,
+        fulfillment_sql_filter(Order),
     ).order_by(Order.created_at.desc()).limit(10).all()
 
     return {
@@ -362,6 +366,11 @@ def get_orders(
         .filter(Order.restaurant_id == restaurant.id)
     )
 
+    if status == "cancelled":
+        query = query.filter(Order.status == "cancelled")
+    else:
+        query = query.filter(fulfillment_sql_filter(Order))
+
     if status == "active":
         query = query.filter(
             Order.status.in_(["accepted", "ready", "picked_up"])
@@ -370,8 +379,6 @@ def get_orders(
         query = query.filter(Order.status == "delivered")
     elif status == "delivered":
         query = query.filter(Order.status == "delivered")
-    elif status == "cancelled":
-        query = query.filter(Order.status == "cancelled")
     elif status == "pending":
         query = query.filter(
             Order.status == "pending",
@@ -403,6 +410,10 @@ def update_order_status(
     ).first()
     if not order:
         raise HTTPException(404, "Order not found")
+
+    from app.modules.orders.payment_state import unpaid_prepaid
+    if unpaid_prepaid(order):
+        raise HTTPException(400, "This order is not paid yet")
 
     if payload.status not in HOTEL_SETTABLE_STATUSES:
         raise HTTPException(

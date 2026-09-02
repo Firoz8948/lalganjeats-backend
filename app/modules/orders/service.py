@@ -359,6 +359,27 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     db.commit()
     db.refresh(order)
 
+    if payload.payment_method == "online":
+        from app.modules.orders.payment_state import mark_prepaid_failed
+
+        stale = (
+            db.query(Order)
+            .filter(
+                Order.customer_id == customer.id,
+                Order.id != order.id,
+                Order.payment_method == "online",
+                Order.status == "pending",
+                Order.payment_status.notin_(["paid", "failed"]),
+            )
+            .all()
+        )
+        changed = False
+        for row in stale:
+            if mark_prepaid_failed(row):
+                changed = True
+        if changed:
+            db.commit()
+
     # Notify hotel + customer + admins only when payment is already settled
     # (COD) or not required. Online prepaid waits for PayU success.
     if order.payment_method != "online" or order.payment_status == "paid":

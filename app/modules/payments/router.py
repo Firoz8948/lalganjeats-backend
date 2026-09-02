@@ -368,6 +368,44 @@ def _payu_form_dict(form) -> dict:
     return {k: str(v) for k, v in form.items()}
 
 
+def _resolve_checkout_order(db: Session, params: dict) -> Order | None:
+    txnid = str(params.get("txnid") or "")
+    order_id = None
+    try:
+        order_id = int(params.get("udf1") or 0) or None
+    except (TypeError, ValueError):
+        order_id = None
+
+    order = None
+    if order_id:
+        order = db.query(Order).filter(Order.id == order_id).first()
+    if not order and txnid:
+        order = db.query(Order).filter(Order.payu_txnid == txnid).first()
+    return order
+
+
+def _checkout_callback_trusted(order: Order, params: dict) -> bool:
+    from app.core.payu_service import verify_response_hash
+
+    if verify_response_hash(params):
+        return True
+    txnid = str(params.get("txnid") or "")
+    return bool(txnid and order.payu_txnid and txnid == order.payu_txnid)
+
+
+def _fail_checkout_order(db: Session, params: dict) -> Order | None:
+    from app.modules.orders.payment_state import mark_prepaid_failed
+
+    if str(params.get("udf3") or "") in ("cash_remit", "collect_at_door"):
+        return None
+    order = _resolve_checkout_order(db, params)
+    if not order or not _checkout_callback_trusted(order, params):
+        return None
+    if mark_prepaid_failed(order):
+        db.commit()
+    return order
+
+
 def _mark_order_paid_from_payu(db: Session, params: dict) -> Order | None:
     from app.core import sms as sms_mod
     from app.core.payu_service import verify_response_hash
@@ -386,24 +424,14 @@ def _mark_order_paid_from_payu(db: Session, params: dict) -> Order | None:
     if status not in ("success", "captured"):
         return None
 
-    txnid = str(params.get("txnid") or "")
-    order_id = None
-    try:
-        order_id = int(params.get("udf1") or 0) or None
-    except (TypeError, ValueError):
-        order_id = None
-
-    order = None
-    if order_id:
-        order = db.query(Order).filter(Order.id == order_id).first()
-    if not order and txnid:
-        order = db.query(Order).filter(Order.payu_txnid == txnid).first()
+    order = _resolve_checkout_order(db, params)
     if not order:
         return None
 
     if (order.payment_status or "").lower() == "paid":
         return order
 
+    txnid = str(params.get("txnid") or "")
     order.payment_status = "paid"
     order.payment_method = "online"
     order.payu_txnid = txnid or order.payu_txnid
@@ -546,8 +574,12 @@ async def payu_success(
             f"&order={order.order_number}&id={order.id}",
             status_code=303,
         )
+    failed = _fail_checkout_order(db, params)
+    q = "status=failed&reason=verify"
+    if failed:
+        q += f"&order={failed.order_number}&id={failed.id}"
     return RedirectResponse(
-        f"{front}/checkout/payment-result?status=failed&reason=verify",
+        f"{front}/checkout/payment-result?{q}",
         status_code=303,
     )
 
@@ -583,11 +615,16 @@ async def payu_failure(
     if str(params.get("udf3") or "") == "collect_at_door":
         return HTMLResponse(_collection_result_html(False, params.get("udf2") or ""))
 
+    failed = _fail_checkout_order(db, params)
     txnid = str(params.get("txnid") or "")
-    order_number = str(params.get("udf2") or "")
+    order_number = str(params.get("udf2") or "") or (
+        failed.order_number if failed else ""
+    )
     q = "status=failed"
     if order_number:
         q += f"&order={order_number}"
+    if failed:
+        q += f"&id={failed.id}"
     if txnid:
         q += f"&txnid={txnid}"
     return RedirectResponse(f"{front}/checkout/payment-result?{q}", status_code=303)
@@ -746,13 +783,25 @@ def render_collection_page(txnid: str, db: Session = Depends(get_db)):
 
 
 @router.get("/payu/success")
-@router.get("/payu/failure")
-def payu_browser_get():
-    """PayU sometimes hits GET; send users to the result page."""
+def payu_browser_get_success():
+    """PayU sometimes hits GET; never mark paid from a GET."""
     from fastapi.responses import RedirectResponse
 
     front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
     return RedirectResponse(f"{front}/checkout/payment-result?status=unknown", status_code=303)
+
+
+@router.get("/payu/failure")
+def payu_browser_get_failure(request: Request, db: Session = Depends(get_db)):
+    from fastapi.responses import RedirectResponse
+
+    params = {k: str(v) for k, v in request.query_params.items()}
+    failed = _fail_checkout_order(db, params)
+    front = (settings.FRONTEND_URL or "").rstrip("/") or "https://lalganjeats.com"
+    q = "status=failed"
+    if failed:
+        q += f"&order={failed.order_number}&id={failed.id}"
+    return RedirectResponse(f"{front}/checkout/payment-result?{q}", status_code=303)
 
 
 @router.post("/verify")

@@ -58,6 +58,7 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
             "total_amount": float(order.total_amount),
             "discount": float(order.discount or 0),
             "payment_method": order.payment_method,
+            "payment_status": order.payment_status,
             "payment_mode": pay["payment_mode"],
             "payment_mode_label": pay["payment_mode_label"],
             "payment_verified": pay["payment_verified"],

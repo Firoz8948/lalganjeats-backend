@@ -11,6 +11,7 @@ from app.modules.users.schemas import (
     ProfileUpdate, AddressCreate, AddressUpdate, SettingsUpdate
 )
 from app.modules.orders.models import Order
+from app.modules.orders.payment_state import customer_visible_sql_filter
 
 router = APIRouter(prefix="/api/v1/users", tags=["Users"])
 
@@ -248,7 +249,7 @@ def get_my_orders(
 ):
     query = db.query(Order).filter(
         Order.customer_id == current_user.id
-    )
+    ).filter(customer_visible_sql_filter(Order))
 
     if filter == "active":
         query = query.filter(
@@ -264,6 +265,7 @@ def get_my_orders(
     orders = query.order_by(Order.created_at.desc()).all()
 
     from app.modules.delivery_partner.service import serialize_public_identity
+    from app.modules.orders.payment_state import payment_failed
     from app.modules.orders.status_meta import customer_status_meta
 
     result = []
@@ -282,12 +284,16 @@ def get_my_orders(
             "restaurant_name": o.restaurant.name
                               if o.restaurant else "Unknown",
             "status":         o.status,
-            "status_meta":    customer_status_meta(
-                o.status,
-                restaurant_name=o.restaurant.name if o.restaurant else None,
-                delivery_partner_name=partner.full_name if partner else None,
-                bike_number=bike,
-                bike_name=bike_name,
+            "status_meta":    (
+                "Payment failed"
+                if payment_failed(o)
+                else customer_status_meta(
+                    o.status,
+                    restaurant_name=o.restaurant.name if o.restaurant else None,
+                    delivery_partner_name=partner.full_name if partner else None,
+                    bike_number=bike,
+                    bike_name=bike_name,
+                )
             ),
             "payment_method": o.payment_method,
             "payment_status": o.payment_status,
