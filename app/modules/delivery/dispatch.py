@@ -296,10 +296,10 @@ def serialize_offer_order(
     )
 
     from app.modules.orders.item_lines import serialize_order_item
-    from app.modules.payments.breakdown import payment_collection_from_order
+    from app.modules.payments.breakdown import display_payment_mode
 
     customer_total = float(order.total_amount or 0)
-    pay = payment_collection_from_order(order, customer_total=customer_total)
+    pay = display_payment_mode(order, customer_total=customer_total)
 
     cash_recorded = float(order.cash_collected or 0) if getattr(order, "cash_collected", None) is not None else 0.0
     online_recorded = float(order.online_collected or 0) if getattr(order, "online_collected", None) is not None else 0.0
@@ -310,18 +310,13 @@ def serialize_offer_order(
         cash_amount = float(pay["cash_collected"] or 0)
         prepaid_amount = float(pay["online_amount"] or 0)
 
+    payment_label = pay["payment_mode_label"]
     if cash_amount > 0 and prepaid_amount > 0:
-        payment_label = "Cash + Prepaid"
+        payment_label = "Split"
     elif cash_amount > 0:
         payment_label = "Cash"
     elif prepaid_amount > 0:
-        payment_label = "Prepaid"
-    else:
-        payment_label = {
-            "COD": "Cash",
-            "Online": "Prepaid",
-            "Split": "Cash + Prepaid",
-        }.get(pay["payment_label"], pay["payment_label"])
+        payment_label = pay["payment_mode_label"]
 
     # Name/phone only after this partner has accepted (not on incoming offers).
     customer = getattr(order, "customer", None) if order.delivery_partner_id else None
@@ -349,6 +344,9 @@ def serialize_offer_order(
         "payment_method": order.payment_method,
         "payment_status": order.payment_status,
         "payment_label": payment_label,
+        "payment_mode": pay.get("payment_mode"),
+        "payment_mode_label": pay.get("payment_mode_label"),
+        "payment_verified": bool(pay.get("payment_verified")),
         "payment_via": pay.get("payment_via"),
         "prepaid_amount": prepaid_amount,
         "cash_amount": cash_amount,

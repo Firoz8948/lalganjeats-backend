@@ -6,10 +6,20 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.models import Order
 from app.modules.orders.status_meta import ORDER_STATUSES
-from app.modules.payments.breakdown import breakdown_from_order, payment_collection_from_order
+from app.modules.payments.breakdown import breakdown_from_order, display_payment_mode
 from app.modules.payments.models import DeliveryEarning, RestaurantEarning
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.users.models import User
+
+
+def _order_payment_mode(order: Order) -> dict:
+    pay = display_payment_mode(order)
+    return {
+        "payment_mode": pay["payment_mode"],
+        "payment_mode_label": pay["payment_mode_label"],
+        "payment_verified": pay["payment_verified"],
+        "payment_via": pay.get("payment_via"),
+    }
 
 
 def get_all_orders(db: Session, current: User, status: str | None = None):
@@ -31,7 +41,10 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
     orders = query.order_by(Order.created_at.desc()).limit(200).all()
     settings = ensure_payment_settings(db)
     platform_charge = float(getattr(settings, "platform_charge_rupees", 0) or 0)
-    return [
+    rows = []
+    for order in orders:
+        pay = display_payment_mode(order)
+        rows.append(
         {
             "id": order.id,
             "order_number": order.order_number,
@@ -45,6 +58,9 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
             "total_amount": float(order.total_amount),
             "discount": float(order.discount or 0),
             "payment_method": order.payment_method,
+            "payment_mode": pay["payment_mode"],
+            "payment_mode_label": pay["payment_mode_label"],
+            "payment_verified": pay["payment_verified"],
             "promo_code": order.promo_code,
             "promo_percent_off": (
                 float(order.promo_percent_off)
@@ -61,8 +77,8 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
                 order.created_at.isoformat() if order.created_at else None
             ),
         }
-        for order in orders
-    ]
+        )
+    return rows
 
 
 def get_payments_received(db: Session, current: User):
@@ -127,7 +143,7 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         customer = view.customer
         admin = view.admin
 
-    pay = payment_collection_from_order(order, customer_total=customer.customer_total)
+    pay = display_payment_mode(order, customer_total=customer.customer_total)
 
     return {
         "order_id": order.id,
@@ -137,7 +153,10 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         "status": order.status,
         # Payment (amounts = customer total; source = prepaid / DP QR / DP cash)
         "payment_method": pay["payment_method"],
-        "payment_label": pay["payment_label"],
+        "payment_label": pay["payment_mode_label"],
+        "payment_mode": pay["payment_mode"],
+        "payment_mode_label": pay["payment_mode_label"],
+        "payment_verified": pay["payment_verified"],
         "payment_via": pay.get("payment_via"),
         "payment_status": pay["payment_status"],
         "online_amount": pay["online_amount"],
@@ -189,6 +208,7 @@ def get_completed_orders_paginated(
         "total_pages": (total + page_size - 1) // page_size,
         "orders": [
             {
+                **_order_payment_mode(o),
                 "id": o.id,
                 "order_number": o.order_number,
                 "status": o.status,

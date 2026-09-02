@@ -1,5 +1,5 @@
 # backend/app/modules/delivery/router.py
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
@@ -14,6 +14,22 @@ from app.modules.delivery import webhook as dp_webhook
 from app.modules.otp import service as otp_service
 
 router = APIRouter(prefix="/api/v1/delivery", tags=["Delivery Partner"])
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _ist_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(day, time.min, tzinfo=IST).astimezone(timezone.utc)
+    return start, start + timedelta(days=1)
+
+
+def _parse_day(value: str | None) -> date:
+    if value:
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            raise HTTPException(400, "date must be YYYY-MM-DD")
+    return datetime.now(IST).date()
 
 
 def _ensure_profile(db: Session, user_id: int) -> DeliveryProfile:
@@ -407,15 +423,22 @@ def complete_delivery(
 
 @router.get("/orders")
 def list_my_orders(
-    filter: str = "all",
+    filter: str = "today",
+    date: str | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
     q = db.query(Order).filter(Order.delivery_partner_id == current_user.id)
     if filter == "active":
         q = q.filter(Order.status.in_(["accepted", "ready", "picked_up"]))
-    elif filter == "delivered":
+    elif filter in ("today", "history", "delivered"):
         q = q.filter(Order.status == "delivered")
+        if filter == "today":
+            start, end = _ist_day_bounds(_parse_day(date))
+            q = q.filter(Order.updated_at >= start, Order.updated_at < end)
+        elif date:
+            start, end = _ist_day_bounds(_parse_day(date))
+            q = q.filter(Order.updated_at >= start, Order.updated_at < end)
     orders = (
         q.options(
             joinedload(Order.items),

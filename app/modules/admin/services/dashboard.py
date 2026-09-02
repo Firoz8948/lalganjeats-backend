@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.models import Order
 from app.modules.orders.status_meta import LIVE_ORDER_STATUSES
+from app.modules.payments.breakdown import display_payment_mode
 from app.modules.promocodes.models import PromoCode
 from app.modules.restaurants.models import Restaurant
 from app.modules.users.models import User
@@ -47,6 +48,7 @@ def _serialize_live_order(o: Order) -> dict:
     restaurant = o.restaurant
     partner = o.delivery_partner
     customer = o.customer
+    pay = display_payment_mode(o)
     return {
         "id": o.id,
         "order_number": o.order_number,
@@ -54,6 +56,10 @@ def _serialize_live_order(o: Order) -> dict:
         "total_amount": float(o.total_amount or 0),
         "payment_method": o.payment_method,
         "payment_status": o.payment_status,
+        "payment_mode": pay["payment_mode"],
+        "payment_mode_label": pay["payment_mode_label"],
+        "payment_verified": pay["payment_verified"],
+        "payment_via": pay.get("payment_via"),
         "created_at": o.created_at.isoformat() if o.created_at else None,
         "restaurant_name": restaurant.name if restaurant else None,
         "restaurant_phone": restaurant.phone if restaurant else None,

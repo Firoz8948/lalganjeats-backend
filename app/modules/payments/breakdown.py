@@ -234,3 +234,42 @@ def payment_collection_from_order(
         "online_amount": online,
         "cash_collected": cash,
     }
+
+
+def display_payment_mode(
+    order: Any,
+    customer_total: float | None = None,
+) -> dict[str, Any]:
+    """
+    Partner/admin display mode, verified from actual collection records:
+
+    - Paid — prepaid PayU at checkout
+    - COD — doorstep cash only
+    - Split — cash + online at the door
+    - Paid in delivery partner QR — doorstep PayU QR (no cash)
+    """
+    pay = payment_collection_from_order(order, customer_total=customer_total)
+    via = pay.get("payment_via") or ""
+    label = pay["payment_label"]
+    paid = pay["payment_status"] == "paid"
+    qr_paid = bool(getattr(order, "collection_online_paid_at", None))
+
+    if label == "Split":
+        mode, mode_label = "split", "Split"
+        verified = paid
+    elif via == "Delivery partner QR":
+        mode, mode_label = "dp_qr", "Paid in delivery partner QR"
+        verified = paid or qr_paid
+    elif label == "COD":
+        mode, mode_label = "cod", "COD"
+        verified = paid
+    else:
+        mode, mode_label = "paid", "Paid"
+        verified = paid and via == "Prepaid online"
+
+    return {
+        **pay,
+        "payment_mode": mode,
+        "payment_mode_label": mode_label,
+        "payment_verified": bool(verified),
+    }

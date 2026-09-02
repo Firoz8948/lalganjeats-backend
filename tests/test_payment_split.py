@@ -255,5 +255,59 @@ def test_payment_collection_split_doorstep():
     assert pay["online_amount"] == 27.53
 
 
+def test_display_payment_mode_labels():
+    from app.modules.payments.breakdown import display_payment_mode
+
+    prepaid = SimpleNamespace(
+        payment_method="online",
+        payment_status="paid",
+        total_amount=100,
+        cash_collected=None,
+        online_collected=None,
+        collection_online_paid_at=None,
+    )
+    d = display_payment_mode(prepaid, customer_total=100)
+    assert d["payment_mode"] == "paid"
+    assert d["payment_mode_label"] == "Paid"
+    assert d["payment_verified"] is True
+
+    qr = SimpleNamespace(
+        payment_method="online",
+        payment_status="paid",
+        total_amount=100,
+        cash_collected=None,
+        online_collected=100,
+        collection_online_paid_at="2026-09-02",
+    )
+    d = display_payment_mode(qr, customer_total=100)
+    assert d["payment_mode"] == "dp_qr"
+    assert d["payment_mode_label"] == "Paid in delivery partner QR"
+    assert d["payment_verified"] is True
+
+    split = SimpleNamespace(
+        payment_method="split",
+        payment_status="paid",
+        total_amount=100,
+        cash_collected=40,
+        online_collected=60,
+        collection_online_paid_at="2026-09-02",
+    )
+    d = display_payment_mode(split, customer_total=100)
+    assert d["payment_mode"] == "split"
+    assert d["payment_mode_label"] == "Split"
+
+    cod = SimpleNamespace(
+        payment_method="cash",
+        payment_status="paid",
+        total_amount=100,
+        cash_collected=100,
+        online_collected=None,
+        collection_online_paid_at=None,
+    )
+    d = display_payment_mode(cod, customer_total=100)
+    assert d["payment_mode"] == "cod"
+    assert d["payment_mode_label"] == "COD"
+
+
 def test_new_manual_earning_is_unsettled():
     assert initial_earning_status() == "unsettled"
