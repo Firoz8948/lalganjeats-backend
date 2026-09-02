@@ -64,6 +64,7 @@ def get_all_orders(
     rows = []
     for order in orders:
         pay = display_payment_mode(order)
+        view = breakdown_from_order(order, platform_charge=platform_charge)
         rows.append(
         {
             "id": order.id,
@@ -75,7 +76,7 @@ def get_all_orders(
                 order.restaurant.name if order.restaurant else None
             ),
             "status": order.status,
-            "total_amount": float(order.total_amount),
+            "total_amount": view.customer.customer_total,
             "discount": float(order.discount or 0),
             "payment_method": order.payment_method,
             "payment_status": order.payment_status,
@@ -91,9 +92,7 @@ def get_all_orders(
             "promo_free_delivery": bool(
                 getattr(order, "promo_free_delivery", False)
             ),
-            "admin_earning": breakdown_from_order(
-                order, platform_charge=platform_charge
-            ).admin.admin_profit,
+            "admin_earning": view.admin.admin_profit,
             "created_at": (
                 order.created_at.isoformat() if order.created_at else None
             ),
