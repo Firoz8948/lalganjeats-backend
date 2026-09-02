@@ -425,6 +425,7 @@ def complete_delivery(
 def list_my_orders(
     filter: str = "today",
     date: str | None = None,
+    page: int = Query(1, ge=1),
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
@@ -439,20 +440,35 @@ def list_my_orders(
         elif date:
             start, end = _ist_day_bounds(_parse_day(date))
             q = q.filter(Order.updated_at >= start, Order.updated_at < end)
+
+    page_size = 10
+    page = max(1, int(page or 1))
+    total = int(q.count() or 0)
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    if page > total_pages > 0:
+        page = total_pages
+
     orders = (
         q.options(
             joinedload(Order.items),
             joinedload(Order.restaurant),
             joinedload(Order.customer),
         )
-        .order_by(Order.created_at.desc())
-        .limit(100)
+        .order_by(Order.updated_at.desc().nullslast(), Order.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
-    return [
-        dispatch.serialize_offer_order(db, o, current_user, for_list=True)
-        for o in orders
-    ]
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "items": [
+            dispatch.serialize_offer_order(db, o, current_user, for_list=True)
+            for o in orders
+        ],
+    }
 
 
 @router.get("/earnings")

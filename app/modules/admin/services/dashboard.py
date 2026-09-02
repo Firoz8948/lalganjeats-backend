@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.modules.orders.models import Order
 from app.modules.orders.status_meta import LIVE_ORDER_STATUSES
 from app.modules.orders.payment_state import fulfillment_sql_filter
+from app.modules.orders.item_lines import serialize_ordered_items
 from app.modules.payments.breakdown import display_payment_mode
 from app.modules.promocodes.models import PromoCode
 from app.modules.restaurants.models import Restaurant
@@ -69,6 +70,7 @@ def _serialize_live_order(o: Order) -> dict:
         "customer_name": customer.full_name if customer else None,
         "customer_phone": customer.phone if customer else None,
         "delivery_address": o.delivery_address,
+        "items": serialize_ordered_items(o),
     }
 
 
@@ -105,6 +107,7 @@ def get_dashboard(db: Session, current: User):
             joinedload(Order.restaurant),
             joinedload(Order.delivery_partner),
             joinedload(Order.customer),
+            joinedload(Order.items),
         )
         .filter(Order.status.in_(LIVE_ORDER_STATUSES))
         .filter(fulfillment_sql_filter(Order))

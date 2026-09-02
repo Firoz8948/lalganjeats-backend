@@ -33,3 +33,24 @@ def serialize_order_item(item: Any) -> dict:
         "line_total": line_total,
         "line_label": f"{prefix} = {name} = {amount}",
     }
+
+
+def serialize_ordered_items(order: Any) -> list[dict]:
+    """Short item list for live-order screens: 2× Butter Chicken (Full)."""
+    rows: list[dict] = []
+    for item in getattr(order, "items", None) or []:
+        qty = int(getattr(item, "quantity", 1) or 1)
+        name = (getattr(item, "name", None) or "Item").strip()
+        variant = (getattr(item, "variant_label", None) or "").strip()
+        label = f"{qty}× {name}"
+        if variant:
+            label = f"{qty}× {name} ({variant})"
+        rows.append(
+            {
+                "name": name,
+                "quantity": qty,
+                "variant_label": variant or None,
+                "line_label": label,
+            }
+        )
+    return rows

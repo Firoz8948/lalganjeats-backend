@@ -362,5 +362,10 @@ def serialize_offer_order(
             else None
         ),
         "created_at": order.created_at.isoformat() if order.created_at else None,
+        "delivered_at": (
+            (getattr(order, "delivered_at", None) or order.updated_at or order.created_at).isoformat()
+            if (getattr(order, "delivered_at", None) or order.updated_at or order.created_at)
+            else None
+        ),
         "items": [serialize_order_item(i) for i in (order.items or [])],
     }

@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.modules.orders.item_lines import serialize_ordered_items
 from app.modules.orders.models import Order
 from app.modules.orders.status_meta import ORDER_STATUSES
 from app.modules.payments.breakdown import breakdown_from_order, display_payment_mode
@@ -216,6 +217,7 @@ def get_completed_orders_paginated(
         joinedload(Order.restaurant),
         joinedload(Order.delivery_partner),
         joinedload(Order.customer),
+        joinedload(Order.items),
     ).filter(Order.status == "delivered")
     if current.tenant_id:
         query = query.filter(Order.tenant_id == current.tenant_id)
@@ -249,6 +251,7 @@ def get_completed_orders_paginated(
                 "customer_name": o.customer.full_name if o.customer else None,
                 "customer_phone": o.customer.phone if o.customer else None,
                 "delivery_address": o.delivery_address,
+                "items": serialize_ordered_items(o),
             }
             for o in orders
         ],
