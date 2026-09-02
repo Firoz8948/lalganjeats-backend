@@ -48,11 +48,12 @@ def get_order_breakdown(
 
 @router.get("/payments/received")
 def get_payments_received(
+    page: int = Query(1, ge=1),
     db: Session = Depends(get_db),
     current: User = Depends(get_admin),
 ):
     """Orders where payment was successfully received (prepaid / collected)."""
-    return order_service.get_payments_received(db, current)
+    return order_service.get_payments_received(db, current, page=page)
 
 
 @router.get("/delivery-earnings")

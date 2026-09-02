@@ -84,6 +84,7 @@ def get_all_orders(
             "payment_mode": pay["payment_mode"],
             "payment_mode_label": pay["payment_mode_label"],
             "payment_verified": pay["payment_verified"],
+            "payment_via": pay.get("payment_via"),
             "promo_code": order.promo_code,
             "promo_percent_off": (
                 float(order.promo_percent_off)
@@ -108,11 +109,11 @@ def get_all_orders(
     }
 
 
-def get_payments_received(db: Session, current: User):
+def get_payments_received(db: Session, current: User, page: int = 1):
     """Revenue ledger: money received by the platform."""
     from app.modules.payments.revenue import build_revenue_ledger
 
-    return build_revenue_ledger(db, current)
+    return build_revenue_ledger(db, current, page=page)
 
 
 def get_order_breakdown(db: Session, current: User, order_id: int):

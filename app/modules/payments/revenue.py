@@ -110,7 +110,7 @@ def compose_revenue_rows(*, orders, remittances, customer_totals: dict | None = 
     return rows
 
 
-def build_revenue_ledger(db: Session, current: User) -> dict:
+def build_revenue_ledger(db: Session, current: User, page: int = 1) -> dict:
     """
     Platform money in:
     - Customer prepaid online
@@ -158,9 +158,20 @@ def build_revenue_ledger(db: Session, current: User) -> dict:
         remittances=remits,
         customer_totals=customer_totals,
     )
-    total = round(sum(float(r["amount"]) for r in rows), 2)
+    total_amount = round(sum(float(r["amount"]) for r in rows), 2)
+    page_size = 10
+    page = max(1, int(page or 1))
+    total = len(rows)
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    if page > total_pages > 0:
+        page = total_pages
+    start = (page - 1) * page_size
     return {
-        "total_received": total,
-        "count": len(rows),
-        "payments": rows,
+        "total_received": total_amount,
+        "count": total,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "payments": rows[start : start + page_size],
     }

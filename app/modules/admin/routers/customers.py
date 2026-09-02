@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -12,10 +12,14 @@ router = APIRouter()
 
 @router.get("/customers")
 def get_all_customers(
+    page: int = Query(1, ge=1),
+    q: str | None = None,
     db: Session = Depends(get_db),
     current: User = Depends(get_admin),
 ):
-    return customer_service.get_all_customers(db, current.tenant_id)
+    return customer_service.get_all_customers(
+        db, current.tenant_id, page=page, q=q,
+    )
 
 
 @router.patch("/customers/{customer_id}/status")
