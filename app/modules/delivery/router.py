@@ -1,7 +1,7 @@
 # backend/app/modules/delivery/router.py
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from pydantic import BaseModel
@@ -511,6 +511,17 @@ def get_cash_on_hand(
     from app.modules.payments.cash_remittance import cash_on_hand
 
     return cash_on_hand(db, current_user)
+
+
+@router.get("/cash-remittances")
+def list_cash_remittances(
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_delivery_partner),
+):
+    from app.modules.payments.history import cash_remittance_history
+
+    return cash_remittance_history(db, current_user.id, page)
 
 
 @router.post("/cash-remit/initiate")

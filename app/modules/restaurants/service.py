@@ -8,10 +8,8 @@ from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
 from app.modules.restaurants.service_area import (
-    customer_within_service_area,
     delivery_charge_for_distance,
     matching_delivery_exception,
-    max_active_zone_radius_km,
 )
 from app.modules.superadmin.models import Tenant
 from app.modules.users.models import User
@@ -137,7 +135,7 @@ def _restaurant_visible_for_customer(
     customer_lat: float | None,
     customer_lng: float | None,
 ) -> bool:
-    """Visibility is based on customer → tenant locked centre vs max active zone."""
+    """Visibility is based on customer distance matching an active zone range."""
     if customer_lat is None or customer_lng is None:
         return False
     tenant = getattr(restaurant, "tenant", None)
@@ -149,14 +147,15 @@ def _restaurant_visible_for_customer(
         customer_lng,
     ) is not None:
         return True
-    max_radius = max_active_zone_radius_km(getattr(tenant, "zones", []) or [])
-    return customer_within_service_area(
-        customer_lat,
-        customer_lng,
-        float(tenant.center_latitude) if tenant.center_latitude is not None else None,
-        float(tenant.center_longitude) if tenant.center_longitude is not None else None,
-        max_radius,
+    if tenant.center_latitude is None or tenant.center_longitude is None:
+        return False
+    distance = haversine_km(
+        float(customer_lat),
+        float(customer_lng),
+        float(tenant.center_latitude),
+        float(tenant.center_longitude),
     )
+    return delivery_charge_for_distance(tenant.zones or [], distance) is not None
 
 
 def list_public_restaurants(
@@ -169,7 +168,8 @@ def list_public_restaurants(
     Public list for home/restaurants pages.
 
     Requires exact customer lat/lng. Returns only restaurants whose tenant
-    locked centre is within the tenant's maximum active delivery-zone radius.
+    locked centre is covered by an active delivery-zone range
+    (initial km including, final km excluding).
     Missing/invalid coordinates → empty list (frontend shows expanding state).
     """
     if customer_lat is None or customer_lng is None:

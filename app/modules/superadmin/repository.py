@@ -63,7 +63,7 @@ def list_zones(db: Session, tenant_id: int) -> list[DeliveryZone]:
     return (
         db.query(DeliveryZone)
         .filter(DeliveryZone.tenant_id == tenant_id)
-        .order_by(DeliveryZone.sort_order, DeliveryZone.radius_km)
+        .order_by(DeliveryZone.initial_km, DeliveryZone.final_km, DeliveryZone.id)
         .all()
     )
 

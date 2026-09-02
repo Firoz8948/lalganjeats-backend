@@ -1,7 +1,7 @@
 # backend/app/modules/superadmin/schemas.py
 from decimal import Decimal
 from typing import Optional, Literal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 PricingType = Literal["flat", "per_km"]
@@ -88,6 +88,8 @@ class TenantAdminResetPassword(BaseModel):
 class ZoneOut(BaseModel):
     id: int
     name: str
+    initial_km: Optional[Decimal] = None
+    final_km: Optional[Decimal] = None
     radius_km: Decimal
     pricing_type: str
     rate: Decimal
@@ -95,6 +97,14 @@ class ZoneOut(BaseModel):
     is_active: bool
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def fill_range_from_radius(self):
+        if self.initial_km is None:
+            self.initial_km = Decimal("0")
+        if self.final_km is None:
+            self.final_km = self.radius_km
+        return self
 
 
 class TenantOut(BaseModel):
@@ -152,15 +162,25 @@ class ImpersonateResponse(BaseModel):
 
 class ZoneCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    radius_km: Decimal = Field(..., gt=0)
+    initial_km: Decimal = Field(..., ge=0)
+    final_km: Decimal = Field(..., gt=0)
     pricing_type: PricingType
     rate: Decimal = Field(..., ge=0)
     sort_order: int = 0
 
+    @model_validator(mode="after")
+    def final_after_initial(self):
+        if self.final_km <= self.initial_km:
+            raise ValueError(
+                "Final range must be greater than initial range"
+            )
+        return self
+
 
 class ZoneUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    radius_km: Optional[Decimal] = Field(None, gt=0)
+    initial_km: Optional[Decimal] = Field(None, ge=0)
+    final_km: Optional[Decimal] = Field(None, gt=0)
     pricing_type: Optional[PricingType] = None
     rate: Optional[Decimal] = Field(None, ge=0)
     sort_order: Optional[int] = None

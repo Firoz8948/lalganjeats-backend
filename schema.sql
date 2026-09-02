@@ -207,6 +207,8 @@ CREATE TABLE IF NOT EXISTS delivery_zones (
     tenant_id    INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     name         VARCHAR(100) NOT NULL,
     radius_km    NUMERIC(8, 2) NOT NULL,
+    initial_km   NUMERIC(8, 2) NOT NULL DEFAULT 0,
+    final_km     NUMERIC(8, 2) NOT NULL,
     pricing_type VARCHAR(20) NOT NULL,
     rate         NUMERIC(10, 2) NOT NULL,
     sort_order   INTEGER DEFAULT 0,

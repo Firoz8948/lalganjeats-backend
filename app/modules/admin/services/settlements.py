@@ -294,3 +294,47 @@ def settle_delivery_earnings(
         row.settled_by = current.id
     db.commit()
     return {"settled_amount": amount, "settled_orders": len(rows)}
+
+
+def _owned_restaurant(db: Session, current: User, restaurant_id: int) -> Restaurant:
+    query = db.query(Restaurant).filter(Restaurant.id == restaurant_id)
+    if current.tenant_id:
+        query = query.filter(Restaurant.tenant_id == current.tenant_id)
+    restaurant = query.first()
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    return restaurant
+
+
+def _owned_delivery_partner(db: Session, current: User, partner_id: int) -> User:
+    query = db.query(User).filter(
+        User.id == partner_id,
+        User.role == "delivery_partner",
+    )
+    if current.tenant_id:
+        query = query.filter(User.tenant_id == current.tenant_id)
+    partner = query.first()
+    if not partner:
+        raise HTTPException(404, "Delivery partner not found")
+    return partner
+
+
+def restaurant_settlement_history(db: Session, current: User, restaurant_id: int, page: int = 1):
+    _owned_restaurant(db, current, restaurant_id)
+    from app.modules.payments.history import restaurant_settlement_history as history
+
+    return history(db, restaurant_id, page)
+
+
+def delivery_settlement_history(db: Session, current: User, partner_id: int, page: int = 1):
+    _owned_delivery_partner(db, current, partner_id)
+    from app.modules.payments.history import delivery_settlement_history as history
+
+    return history(db, partner_id, page)
+
+
+def delivery_cash_history(db: Session, current: User, partner_id: int, page: int = 1):
+    _owned_delivery_partner(db, current, partner_id)
+    from app.modules.payments.history import cash_remittance_history
+
+    return cash_remittance_history(db, partner_id, page)

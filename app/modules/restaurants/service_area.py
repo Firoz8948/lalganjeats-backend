@@ -32,19 +32,43 @@ def matching_delivery_exception(
     return min(matches, key=lambda row: row[0])[1] if matches else None
 
 
-def max_active_zone_radius_km(zones: Iterable) -> float | None:
-    """Largest active delivery-zone radius in km, or None if none configured."""
-    radii: list[float] = []
+def _active_zone_ranges(zones: Iterable) -> list[tuple[float, float, object]]:
+    """
+    Active zones as half-open km ranges: start included, end excluded.
+
+    Explicit initial_km/final_km win. Legacy radius-only rows stack in radius
+    order: 2 km then 4 km then 6 km becomes [0, 2), [2, 4), [4, 6).
+    """
+    explicit: list[tuple[float, float, object]] = []
+    legacy: list[object] = []
     for zone in zones:
         if not getattr(zone, "is_active", False):
             continue
+        initial = getattr(zone, "initial_km", None)
+        final = getattr(zone, "final_km", None)
         radius = getattr(zone, "radius_km", None)
-        if radius is None:
-            continue
-        radii.append(float(radius))
-    if not radii:
-        return None
-    return max(radii)
+        if initial is not None and final is not None:
+            start, end = float(initial), float(final)
+            if end > start:
+                explicit.append((start, end, zone))
+        elif radius is not None:
+            legacy.append(zone)
+    if explicit:
+        return explicit
+    ranges: list[tuple[float, float, object]] = []
+    prev = 0.0
+    for zone in sorted(legacy, key=lambda item: float(item.radius_km)):
+        end = float(zone.radius_km)
+        if end > prev:
+            ranges.append((prev, end, zone))
+            prev = end
+    return ranges
+
+
+def max_active_zone_radius_km(zones: Iterable) -> float | None:
+    """Largest active zone outer bound in km, or None if none configured."""
+    ends = [end for _, end, _ in _active_zone_ranges(zones)]
+    return max(ends) if ends else None
 
 
 def delivery_charge_for_distance(
@@ -52,29 +76,26 @@ def delivery_charge_for_distance(
     distance_km: float,
 ) -> float | None:
     """
-    Price delivery using the smallest active ring containing the customer.
+    Price delivery using the active zone whose range contains the distance.
 
-    Example: for 2 km and 4 km zones, a 3 km delivery uses the 4 km zone.
+    Ranges are half-open: initial km is included, final km is excluded.
+    Example: 3–5 km covers 3.0, 3.1 and 4.9, but not 5.0.
     Flat zones charge their configured rate; per-km zones multiply their rate
     by the actual distance.
     """
-    eligible = sorted(
-        (
-            zone
-            for zone in zones
-            if getattr(zone, "is_active", False)
-            and getattr(zone, "radius_km", None) is not None
-            and float(zone.radius_km) >= float(distance_km)
-        ),
-        key=lambda zone: float(zone.radius_km),
-    )
-    if not eligible:
+    distance = float(distance_km)
+    matches = [
+        (end - start, start, zone)
+        for start, end, zone in _active_zone_ranges(zones)
+        if start <= distance < end
+    ]
+    if not matches:
         return None
 
-    zone = eligible[0]
+    zone = sorted(matches, key=lambda row: (row[0], row[1]))[0][2]
     rate = float(getattr(zone, "rate", 0) or 0)
     if getattr(zone, "pricing_type", "flat") == "per_km":
-        return round(rate * float(distance_km), 2)
+        return round(rate * distance, 2)
     return round(rate, 2)
 
 
@@ -103,4 +124,4 @@ def customer_within_service_area(
         float(center_lat),
         float(center_lng),
     )
-    return distance <= float(max_radius_km)
+    return distance < float(max_radius_km)

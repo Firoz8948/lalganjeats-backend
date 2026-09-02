@@ -1033,6 +1033,24 @@ def get_restaurant_earnings(
     }
 
 
+@router.get("/earnings/restaurant/settlements")
+def restaurant_settlement_history(
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_restaurant_owner),
+):
+    from app.modules.payments.history import restaurant_settlement_history as history
+
+    restaurant = (
+        db.query(Restaurant)
+        .filter(Restaurant.owner_id == current_user.id)
+        .first()
+    )
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    return history(db, restaurant.id, page)
+
+
 @router.get("/earnings/delivery", response_model=EarningsSummary)
 def get_delivery_earnings(
     db: Session = Depends(get_db),
@@ -1095,6 +1113,17 @@ def get_delivery_earnings(
         "unsettled_amount": float(unsettled_amount),
         "settled_amount": float(settled_amount),
     }
+
+
+@router.get("/earnings/delivery/settlements")
+def delivery_settlement_history(
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_delivery_partner),
+):
+    from app.modules.payments.history import delivery_settlement_history as history
+
+    return history(db, current_user.id, page)
 
 
 @router.post("/withdraw", response_model=WithdrawalResponse)

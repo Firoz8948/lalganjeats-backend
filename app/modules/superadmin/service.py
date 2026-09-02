@@ -267,14 +267,58 @@ def get_admin_centre(db: Session, admin: User) -> TenantCentreOut:
     )
 
 
+def _zone_bounds(zone: DeliveryZone) -> tuple[float, float]:
+    initial = zone.initial_km if zone.initial_km is not None else 0
+    final = zone.final_km if zone.final_km is not None else zone.radius_km
+    return float(initial or 0), float(final or 0)
+
+
+def _assert_zone_range_free(
+    db: Session,
+    tenant_id: int,
+    initial,
+    final,
+    *,
+    exclude_id: int | None = None,
+    is_active: bool = True,
+) -> None:
+    start, end = float(initial), float(final)
+    if end <= start:
+        raise HTTPException(
+            status_code=400,
+            detail="Final range must be greater than initial range.",
+        )
+    if not is_active:
+        return
+    for zone in repo.list_zones(db, tenant_id):
+        if exclude_id is not None and zone.id == exclude_id:
+            continue
+        if not zone.is_active:
+            continue
+        other_start, other_end = _zone_bounds(zone)
+        if start < other_end and other_start < end:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Range overlaps '{zone.name}' "
+                    f"({other_start:g} km including – {other_end:g} km excluding)."
+                ),
+            )
+
+
 def create_zone(
     db: Session, admin: User, payload: ZoneCreateRequest
 ) -> ZoneOut:
     tenant = require_admin_tenant(db, admin)
+    _assert_zone_range_free(
+        db, tenant.id, payload.initial_km, payload.final_km
+    )
     zone = DeliveryZone(
         tenant_id=tenant.id,
         name=payload.name.strip(),
-        radius_km=payload.radius_km,
+        initial_km=payload.initial_km,
+        final_km=payload.final_km,
+        radius_km=payload.final_km,
         pricing_type=payload.pricing_type,
         rate=payload.rate,
         sort_order=payload.sort_order,
@@ -300,7 +344,24 @@ def update_zone(
     zone = repo.get_zone(db, zone_id, tenant.id)
     if not zone:
         raise HTTPException(status_code=404, detail="Zone not found")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    initial = data.get("initial_km", zone.initial_km)
+    final = data.get("final_km", zone.final_km if zone.final_km is not None else zone.radius_km)
+    active = data.get("is_active", zone.is_active)
+    _assert_zone_range_free(
+        db,
+        tenant.id,
+        initial,
+        final,
+        exclude_id=zone.id,
+        is_active=bool(active),
+    )
+    data["radius_km"] = final
+    if "initial_km" not in data:
+        data["initial_km"] = initial
+    if "final_km" not in data:
+        data["final_km"] = final
+    for key, value in data.items():
         setattr(zone, key, value)
     db.commit()
     db.refresh(zone)

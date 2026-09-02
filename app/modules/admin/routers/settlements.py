@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -68,3 +68,37 @@ def settle_delivery_earnings(
         current,
         partner_id,
     )
+
+
+@router.get("/settlements/restaurants/{restaurant_id}/history")
+def restaurant_settlement_history(
+    restaurant_id: int,
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return settlement_service.restaurant_settlement_history(
+        db, current, restaurant_id, page
+    )
+
+
+@router.get("/settlements/delivery-partners/{partner_id}/history")
+def delivery_settlement_history(
+    partner_id: int,
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return settlement_service.delivery_settlement_history(
+        db, current, partner_id, page
+    )
+
+
+@router.get("/settlements/delivery-partners/{partner_id}/cash-history")
+def delivery_cash_history(
+    partner_id: int,
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return settlement_service.delivery_cash_history(db, current, partner_id, page)

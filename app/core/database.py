@@ -102,6 +102,10 @@ def run_auto_migrations():
 
         # Cash remittance: keep order ids so cash on hand is not zeroed until PayU is paid.
         "ALTER TABLE cash_remittances ADD COLUMN IF NOT EXISTS order_ids TEXT;",
+
+        # Delivery zones: half-open km ranges [initial including, final excluding).
+        "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS initial_km NUMERIC(8,2);",
+        "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS final_km NUMERIC(8,2);",
     ]
     for stmt in statements:
         try:
@@ -110,3 +114,50 @@ def run_auto_migrations():
                 conn.commit()
         except Exception:
             pass
+    _backfill_delivery_zone_ranges()
+
+
+def _backfill_delivery_zone_ranges():
+    """Turn legacy radius-only rows into stacked [previous, radius) ranges."""
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id, tenant_id, radius_km, initial_km, final_km
+                    FROM delivery_zones
+                    ORDER BY tenant_id, radius_km, id
+                    """
+                )
+            ).mappings().all()
+            prev_by_tenant: dict = {}
+            for row in rows:
+                tenant_id = row["tenant_id"]
+                if row["initial_km"] is not None and row["final_km"] is not None:
+                    prev_by_tenant[tenant_id] = float(row["final_km"])
+                    continue
+                start = float(prev_by_tenant.get(tenant_id, 0) or 0)
+                end = float(row["radius_km"] or 0)
+                if end <= start:
+                    end = start
+                conn.execute(
+                    text(
+                        """
+                        UPDATE delivery_zones
+                        SET initial_km = :initial_km,
+                            final_km = :final_km,
+                            radius_km = :radius_km
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "initial_km": start,
+                        "final_km": end,
+                        "radius_km": end,
+                        "id": row["id"],
+                    },
+                )
+                prev_by_tenant[tenant_id] = end
+            conn.commit()
+    except Exception:
+        pass

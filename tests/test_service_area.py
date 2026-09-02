@@ -10,12 +10,16 @@ from app.modules.restaurants.service import _restaurant_visible_for_customer
 class _Zone:
     def __init__(
         self,
-        radius_km,
+        radius_km=None,
         is_active=True,
         rate=0,
         pricing_type="flat",
+        initial_km=None,
+        final_km=None,
     ):
         self.radius_km = radius_km
+        self.initial_km = initial_km
+        self.final_km = final_km
         self.is_active = is_active
         self.rate = rate
         self.pricing_type = pricing_type
@@ -88,6 +92,41 @@ def test_distance_uses_first_active_zone_that_contains_customer():
     ]
 
     assert delivery_charge_for_distance(zones, 3) == 40
+
+
+def test_half_open_range_includes_start_and_excludes_end():
+    zones = [
+        _Zone(initial_km=3, final_km=5, rate=50),
+    ]
+    assert delivery_charge_for_distance(zones, 3) == 50
+    assert delivery_charge_for_distance(zones, 3.1) == 50
+    assert delivery_charge_for_distance(zones, 4.9) == 50
+    assert delivery_charge_for_distance(zones, 5) is None
+    assert delivery_charge_for_distance(zones, 2.9) is None
+
+
+def test_stacked_rings_use_previous_final_as_next_initial():
+    zones = [
+        _Zone(initial_km=0, final_km=2, rate=20),
+        _Zone(initial_km=2, final_km=4, rate=40),
+        _Zone(initial_km=4, final_km=6, rate=60),
+    ]
+    assert delivery_charge_for_distance(zones, 0) == 20
+    assert delivery_charge_for_distance(zones, 1.9) == 20
+    assert delivery_charge_for_distance(zones, 2) == 40
+    assert delivery_charge_for_distance(zones, 4) == 60
+    assert delivery_charge_for_distance(zones, 6) is None
+
+
+def test_legacy_radius_zones_stack_as_half_open_rings():
+    zones = [
+        _Zone(2, rate=20),
+        _Zone(4, rate=40),
+        _Zone(6, rate=60),
+    ]
+    assert delivery_charge_for_distance(zones, 2) == 40
+    assert delivery_charge_for_distance(zones, 4) == 60
+    assert delivery_charge_for_distance(zones, 6) is None
 
 
 def test_per_km_zone_multiplies_rate_by_actual_distance():

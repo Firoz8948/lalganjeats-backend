@@ -49,7 +49,7 @@ class Tenant(Base):
     restaurants = relationship("Restaurant", back_populates="tenant")
     zones       = relationship(
         "DeliveryZone", back_populates="tenant",
-        cascade="all, delete-orphan", order_by="DeliveryZone.radius_km"
+        cascade="all, delete-orphan", order_by="DeliveryZone.initial_km"
     )
     delivery_exceptions = relationship(
         "DeliveryException",
@@ -63,6 +63,7 @@ class DeliveryZone(Base):
     """
     Delivery pricing rings around the tenant centre.
     Admin manages zones; cannot change centre coordinates.
+    Range is half-open: initial_km included, final_km excluded.
     pricing_type: 'flat' = fixed Rs for the zone | 'per_km' = rate × distance
     """
     __tablename__ = "delivery_zones"
@@ -76,7 +77,9 @@ class DeliveryZone(Base):
         nullable=False, index=True
     )
     name          = Column(String(100), nullable=False)       # e.g. Zone 1
-    radius_km     = Column(Numeric(8, 2), nullable=False)     # e.g. 2.00
+    radius_km     = Column(Numeric(8, 2), nullable=False)     # kept in sync with final_km
+    initial_km    = Column(Numeric(8, 2), nullable=False, default=0)
+    final_km      = Column(Numeric(8, 2), nullable=False)
     pricing_type  = Column(String(20), nullable=False)        # flat | per_km
     rate          = Column(Numeric(10, 2), nullable=False)    # Rs flat or Rs/km
     sort_order    = Column(Integer, default=0)

@@ -18,7 +18,7 @@ WITH customer AS (
     SELECT :cust_lat::float8 AS lat, :cust_lng::float8 AS lng
 ),
 zone_limits AS (
-    SELECT tenant_id, MAX(radius_km) AS max_radius_km, COUNT(*) AS active_zones
+    SELECT tenant_id, MAX(COALESCE(final_km, radius_km)) AS max_radius_km, COUNT(*) AS active_zones
     FROM delivery_zones
     WHERE is_active = true
     GROUP BY tenant_id
@@ -45,7 +45,7 @@ SELECT
                 + cos(radians(c.lat)) * cos(radians(t.center_latitude::float8))
                 * power(sin(radians(t.center_longitude::float8 - c.lng) / 2), 2)
             ))
-        ) <= z.max_radius_km THEN 'IN RANGE -> visible'
+        ) < z.max_radius_km THEN 'IN RANGE -> visible'
         ELSE 'OUT OF RANGE -> hidden'
     END                 AS verdict,
     (SELECT COUNT(*) FROM restaurants r

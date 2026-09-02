@@ -23,7 +23,7 @@ def list_restaurants(
 ):
     """
     Public list — approved & active restaurants within the customer's
-    service area (exact lat/lng vs tenant centre + max active zone radius).
+    service area (exact lat/lng vs tenant centre + matching zone range).
     """
     return service.list_public_restaurants(
         db,
