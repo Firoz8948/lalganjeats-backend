@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_admin
@@ -12,10 +12,11 @@ router = APIRouter()
 @router.get("/orders")
 def get_all_orders(
     status: str | None = None,
+    page: int = Query(1, ge=1),
     db: Session = Depends(get_db),
     current: User = Depends(get_admin),
 ):
-    return order_service.get_all_orders(db, current, status=status)
+    return order_service.get_all_orders(db, current, status=status, page=page)
 
 
 @router.get("/orders/completed")

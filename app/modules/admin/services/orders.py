@@ -22,8 +22,16 @@ def _order_payment_mode(order: Order) -> dict:
     }
 
 
-def get_all_orders(db: Session, current: User, status: str | None = None):
-    query = db.query(Order)
+def get_all_orders(
+    db: Session,
+    current: User,
+    status: str | None = None,
+    page: int = 1,
+):
+    query = db.query(Order).options(
+        joinedload(Order.customer),
+        joinedload(Order.restaurant),
+    )
     if current.tenant_id:
         query = query.filter(Order.tenant_id == current.tenant_id)
 
@@ -38,7 +46,19 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
             )
         query = query.filter(Order.status == status_key)
 
-    orders = query.order_by(Order.created_at.desc()).limit(200).all()
+    page_size = 10
+    page = max(1, int(page or 1))
+    total = int(query.count() or 0)
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    if page > total_pages > 0:
+        page = total_pages
+
+    orders = (
+        query.order_by(Order.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
     settings = ensure_payment_settings(db)
     platform_charge = float(getattr(settings, "platform_charge_rupees", 0) or 0)
     rows = []
@@ -79,7 +99,13 @@ def get_all_orders(db: Session, current: User, status: str | None = None):
             ),
         }
         )
-    return rows
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "items": rows,
+    }
 
 
 def get_payments_received(db: Session, current: User):
