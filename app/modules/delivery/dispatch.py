@@ -182,8 +182,17 @@ def accept_offer(db: Session, order_id: int, partner: User) -> Order:
         .first()
     )
     if has_active:
-        from fastapi import HTTPException
-        raise HTTPException(400, "Complete the active order first before accepting a new order.")
+        profile = (
+            db.query(DeliveryProfile)
+            .filter(DeliveryProfile.user_id == partner.id)
+            .first()
+        )
+        if not (profile and profile.allow_multiple_orders):
+            from fastapi import HTTPException
+            raise HTTPException(
+                400,
+                "Complete the active order first before accepting a new order.",
+            )
 
     # Tenant check
     tenant_id = order.tenant_id or (order.restaurant.tenant_id if order.restaurant else None)

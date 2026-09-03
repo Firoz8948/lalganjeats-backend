@@ -138,6 +138,7 @@ class DeliveryProfile(Base):
     vehicle_type   = Column(String(50))
     vehicle_number = Column(String(20))
     is_online      = Column(Boolean, default=False)
+    allow_multiple_orders = Column(Boolean, default=False, nullable=False)
     total_earnings = Column(DECIMAL(10, 2), default=0)
     current_latitude  = Column(Numeric(10, 7), nullable=True)
     current_longitude = Column(Numeric(10, 7), nullable=True)

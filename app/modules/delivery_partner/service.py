@@ -56,13 +56,19 @@ def _partner_query(db: Session, tenant_id: int):
         .options(
             joinedload(User.delivery_partner_details).joinedload(
                 DeliveryPartnerDetails.bank_account
-            )
+            ),
+            joinedload(User.delivery_profile),
         )
         .filter(
             User.role == "delivery_partner",
             User.tenant_id == tenant_id,
         )
     )
+
+
+def _allow_multiple_orders(partner: User) -> bool:
+    profile = getattr(partner, "delivery_profile", None)
+    return bool(profile and getattr(profile, "allow_multiple_orders", False))
 
 
 def _serialize_admin(partner: User) -> dict:
@@ -77,6 +83,7 @@ def _serialize_admin(partner: User) -> dict:
             "username": getattr(partner, "username", None),
             "has_password": bool(getattr(partner, "password_hash", None)),
             "is_active": bool(partner.is_active),
+            "allow_multiple_orders": _allow_multiple_orders(partner),
             "profile_complete": False,
             "date_of_birth": None,
             "age": None,
@@ -103,6 +110,7 @@ def _serialize_admin(partner: User) -> dict:
         "username": getattr(partner, "username", None),
         "has_password": bool(getattr(partner, "password_hash", None)),
         "is_active": bool(partner.is_active),
+        "allow_multiple_orders": _allow_multiple_orders(partner),
         "profile_complete": True,
         "date_of_birth": details.date_of_birth,
         "age": calculate_age(details.date_of_birth),
@@ -257,6 +265,36 @@ def create_delivery_partner(
 
     partner = _partner_query(db, tenant_id).filter(User.id == user.id).first()
     return _serialize_admin(partner)
+
+
+def set_allow_multiple_orders(
+    db: Session,
+    tenant_id: int,
+    partner_id: int,
+    allow_multiple_orders: bool,
+) -> dict:
+    partner = (
+        _partner_query(db, tenant_id)
+        .filter(User.id == partner_id)
+        .first()
+    )
+    if not partner:
+        raise HTTPException(404, "Delivery partner not found")
+    profile = partner.delivery_profile
+    if not profile:
+        profile = DeliveryProfile(
+            user_id=partner.id,
+            is_online=False,
+            allow_multiple_orders=allow_multiple_orders,
+        )
+        db.add(profile)
+    else:
+        profile.allow_multiple_orders = allow_multiple_orders
+    db.commit()
+    return {
+        "id": partner.id,
+        "allow_multiple_orders": bool(profile.allow_multiple_orders),
+    }
 
 
 def set_delivery_partner_status(

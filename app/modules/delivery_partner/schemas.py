@@ -92,10 +92,15 @@ class DeliveryPartnerOut(BaseModel):
     bank_name: str | None = None
     documents: dict[str, bool]
     created_at: datetime | None = None
+    allow_multiple_orders: bool = False
 
 
 class DeliveryPartnerStatusUpdate(BaseModel):
     is_active: bool
+
+
+class DeliveryPartnerMultiOrderUpdate(BaseModel):
+    allow_multiple_orders: bool
 
 
 class DeliveryPartnerCredentialsUpdate(BaseModel):

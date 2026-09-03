@@ -48,6 +48,7 @@ def run_auto_migrations():
         "ALTER TABLE delivery_profiles ADD COLUMN IF NOT EXISTS last_location_update TIMESTAMPTZ;",
         "ALTER TABLE delivery_profiles ADD COLUMN IF NOT EXISTS has_location BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE delivery_profiles ADD COLUMN IF NOT EXISTS location_name VARCHAR(100);",
+        "ALTER TABLE delivery_profiles ADD COLUMN IF NOT EXISTS allow_multiple_orders BOOLEAN DEFAULT FALSE;",
 
         # restaurants table
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS business_category_id INT;",

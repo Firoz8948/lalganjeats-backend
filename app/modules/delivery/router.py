@@ -65,15 +65,18 @@ def get_dashboard(
         func.date(Order.updated_at) == today,
     ).scalar()
 
-    active = (
+    actives = (
         db.query(Order)
         .filter(
             Order.delivery_partner_id == current_user.id,
             Order.status.in_(["accepted", "ready", "picked_up", "out_for_delivery"]),
         )
         .order_by(Order.updated_at.desc())
-        .first()
+        .all()
     )
+    serialized_actives = [
+        dispatch.serialize_offer_order(db, order, current_user) for order in actives
+    ]
 
     available = []
     offers = (
@@ -98,14 +101,16 @@ def get_dashboard(
             "phone": current_user.phone,
             "total_earnings": float(profile.total_earnings or 0),
             "has_location": profile.current_latitude is not None,
+            "allow_multiple_orders": bool(
+                getattr(profile, "allow_multiple_orders", False)
+            ),
         },
         "today": {
             "orders": today_orders,
             "earnings": float(today_earn or 0),
         },
-        "active_order": (
-            dispatch.serialize_offer_order(db, active, current_user) if active else None
-        ),
+        "active_order": serialized_actives[0] if serialized_actives else None,
+        "active_orders": serialized_actives,
         "available_orders": available,
     }
 

@@ -11,6 +11,7 @@ from app.modules.delivery_partner.schemas import (
     UPLOAD_TYPES,
     DeliveryPartnerCreate,
     DeliveryPartnerCredentialsUpdate,
+    DeliveryPartnerMultiOrderUpdate,
     DeliveryPartnerOut,
     DeliveryPartnerStatusUpdate,
     UploadResult,
@@ -50,6 +51,21 @@ def update_delivery_partner_status(
         current.tenant_id,
         partner_id,
         payload.is_active,
+    )
+
+
+@router.patch("/{partner_id}/multi-orders")
+def update_delivery_partner_multi_orders(
+    partner_id: int,
+    payload: DeliveryPartnerMultiOrderUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return service.set_allow_multiple_orders(
+        db,
+        current.tenant_id,
+        partner_id,
+        payload.allow_multiple_orders,
     )
 
 
