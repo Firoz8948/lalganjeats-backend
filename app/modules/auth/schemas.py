@@ -42,3 +42,5 @@ class TokenResponse(BaseModel):
     phone: Optional[str] = None
     redirect_to: str  # Frontend redirect path
     legal_terms_version: Optional[str] = None
+    tenant_id: Optional[int] = None
+    tenant_name: Optional[str] = None

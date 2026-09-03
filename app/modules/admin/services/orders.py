@@ -219,9 +219,10 @@ def get_completed_orders_paginated(
         joinedload(Order.delivery_partner),
         joinedload(Order.customer),
         joinedload(Order.items),
-    ).filter(Order.status == "delivered")
-    if current.tenant_id:
-        query = query.filter(Order.tenant_id == current.tenant_id)
+    ).filter(
+        Order.status == "delivered",
+        Order.tenant_id == current.tenant_id,
+    )
 
     total = query.count()
     orders = (

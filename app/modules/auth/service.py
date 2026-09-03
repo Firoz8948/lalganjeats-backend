@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.core.security import (
@@ -238,11 +238,16 @@ def admin_login(username: str, password: str, db: Session) -> dict:
     if phone_10:
         filters.append(User.phone == phone_10)
 
-    user = db.query(User).filter(
-        or_(*filters),
-        User.role.in_(["admin", "super_admin"]),
-        User.is_active == True,
-    ).first()
+    user = (
+        db.query(User)
+        .options(joinedload(User.tenant))
+        .filter(
+            or_(*filters),
+            User.role == "admin",
+            User.is_active == True,
+        )
+        .first()
+    )
 
     if not user or not user.password_hash:
         raise HTTPException(
@@ -256,6 +261,14 @@ def admin_login(username: str, password: str, db: Session) -> dict:
             detail="Invalid username or password"
         )
 
+    if not user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This admin account is not linked to a city. Contact super admin.",
+        )
+
+    tenant_name = user.tenant.name if user.tenant else None
+
     token = create_access_token({
         "sub": str(user.id),
         "role": user.role,
@@ -268,7 +281,9 @@ def admin_login(username: str, password: str, db: Session) -> dict:
         "role": user.role,
         "user_id": user.id,
         "full_name": user.full_name,
-        "redirect_to": "/admin/dashboard"
+        "redirect_to": "/admin/dashboard",
+        "tenant_id": user.tenant_id,
+        "tenant_name": tenant_name,
     }
 
 

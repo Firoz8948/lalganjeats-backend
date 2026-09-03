@@ -125,7 +125,21 @@ def get_delivery_partner(
     return current_user
 
 
-get_admin            = require_role("admin")          # tenant admin
+def get_admin(current_user=Depends(get_current_user)):
+    """Tenant admin only — must be linked to the city they operate."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Tenant admin login required.",
+        )
+    if not current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This admin account is not linked to a city. Contact super admin.",
+        )
+    return current_user
+
+
 get_super_admin      = require_role("super_admin")    # platform owner
 get_any_staff        = require_role(
     "restaurant_owner", "delivery_partner", "admin", "super_admin"

@@ -111,9 +111,8 @@ def get_dashboard(db: Session, current: User):
         )
         .filter(Order.status.in_(LIVE_ORDER_STATUSES))
         .filter(fulfillment_sql_filter(Order))
+        .filter(Order.tenant_id == current.tenant_id)
     )
-    if current.tenant_id:
-        live_orders_q = live_orders_q.filter(Order.tenant_id == current.tenant_id)
     live_orders = live_orders_q.order_by(Order.created_at.desc()).limit(25).all()
 
     serialized = [_serialize_live_order(o) for o in live_orders]
