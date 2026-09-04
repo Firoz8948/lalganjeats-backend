@@ -7,6 +7,10 @@ The printed menu price is treated as the seller transfer price:
     display price = transfer price + 30%
     MRP           = transfer price + 39%
 
+To raise already-seeded prices (transfer +5%, display +5%, MRP = display +6%):
+    docker compose exec backend python -m scripts.update_rp_grand_menu_prices --dry-run
+    docker compose exec backend python -m scripts.update_rp_grand_menu_prices
+
 Run on EC2 inside the backend container:
     docker compose exec backend python -m scripts.seed_rp_grand_menu_another_batch
 

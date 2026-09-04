@@ -11,6 +11,7 @@ from app.core.security import get_delivery_partner
 from app.modules.orders.models import Order, DeliveryProfile, DeliveryOffer
 from app.modules.delivery import dispatch
 from app.modules.delivery import webhook as dp_webhook
+from app.modules.delivery.actives import merge_active_order_payloads
 from app.modules.otp import service as otp_service
 
 router = APIRouter(prefix="/api/v1/delivery", tags=["Delivery Partner"])
@@ -67,16 +68,24 @@ def get_dashboard(
 
     actives = (
         db.query(Order)
+        .options(
+            joinedload(Order.restaurant),
+            joinedload(Order.items),
+            joinedload(Order.customer),
+        )
         .filter(
             Order.delivery_partner_id == current_user.id,
             Order.status.in_(["accepted", "ready", "picked_up", "out_for_delivery"]),
         )
-        .order_by(Order.updated_at.desc())
+        .order_by(Order.created_at.asc(), Order.id.asc())
         .all()
     )
-    serialized_actives = [
-        dispatch.serialize_offer_order(db, order, current_user) for order in actives
-    ]
+    serialized_actives = merge_active_order_payloads(
+        [
+            dispatch.serialize_offer_order(db, order, current_user)
+            for order in actives
+        ]
+    )
 
     available = []
     offers = (
