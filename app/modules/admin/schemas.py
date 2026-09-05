@@ -61,6 +61,7 @@ class CustomerStatusUpdate(BaseModel):
 class AdminMenuVariantCreate(BaseModel):
     label: str = Field(..., min_length=1, max_length=40)
     actual_price: float = Field(gt=0)
+    price: float | None = Field(default=None, gt=0)
     original_price: float | None = Field(default=None, gt=0)
 
 
@@ -68,7 +69,7 @@ class AdminMenuItemCreate(BaseModel):
     name: str
     description: str | None = None
     image_url: str | None = None
-    # Ignored when supplied: backend derives display price from transfer price.
+    # Customer-facing display price. If omitted, backend applies transfer markup.
     price: float | None = Field(default=None, gt=0)
     actual_price: float | None = Field(default=None, gt=0)
     original_price: float | None = Field(default=None, gt=0)

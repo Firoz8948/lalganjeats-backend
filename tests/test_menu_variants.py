@@ -27,15 +27,34 @@ def test_menu_item_update_accepts_replacement_prices_variants_and_image():
         description="Updated",
         image_url="https://cdn.example.com/paneer.webp",
         actual_price=120,
+        price=156,
         category_name="Starters",
         variants=[
             {
                 "label": "Half",
                 "actual_price": 80,
+                "price": 104,
                 "original_price": 120,
             }
         ],
     )
 
     assert payload.image_url.endswith("paneer.webp")
+    assert payload.price == 156
     assert payload.variants[0].label == "Half"
+    assert payload.variants[0].price == 104
+
+
+def test_regular_variant_input_keeps_edited_display_price():
+    from app.modules.admin.schemas import AdminMenuItemCreate
+    from app.modules.admin.services.restaurants import _resolve_variant_inputs
+
+    payload = AdminMenuItemCreate(
+        name="Masala Chai",
+        actual_price=20,
+        price=25,
+    )
+    variants = _resolve_variant_inputs(payload)
+    assert len(variants) == 1
+    assert variants[0].actual_price == 20
+    assert variants[0].price == 25

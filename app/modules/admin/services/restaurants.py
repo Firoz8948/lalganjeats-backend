@@ -13,7 +13,7 @@ from app.modules.admin.schemas import (
     AdminMenuItemUpdate,
     AdminMenuVariantCreate,
 )
-from app.modules.payments.pricing import calculate_display_price
+from app.modules.payments.pricing import resolve_display_price
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.restaurants.models import (
     CatalogSubcategory,
@@ -306,6 +306,7 @@ def _resolve_variant_inputs(
         AdminMenuVariantCreate(
             label="Regular",
             actual_price=payload.actual_price,
+            price=payload.price,
             original_price=payload.original_price,
         )
     ]
@@ -327,9 +328,10 @@ def _priced_variant_inputs(
         seen_labels.add(key)
 
         transfer = Decimal(str(raw.actual_price))
-        display = calculate_display_price(
+        display = resolve_display_price(
             transfer,
             payment_settings.display_price_markup_percent,
+            raw.price,
         )
         mrp = (
             Decimal(str(raw.original_price))
@@ -340,7 +342,7 @@ def _priced_variant_inputs(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"MRP for {label} cannot be lower than calculated display "
+                    f"MRP for {label} cannot be lower than display "
                     f"price ₹{display:.2f}."
                 ),
             )
