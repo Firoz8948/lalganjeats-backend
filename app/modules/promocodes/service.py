@@ -21,6 +21,7 @@ from app.modules.users.models import User
 MOBILE_CHANNELS = {"android_app", "ios_app"}
 MSG_ONE_TIME = "APPLICABLE FOR ONE TIME ONLY"
 MSG_NEW_USERS = "APPLICABLE FOR NEW USERS"
+MSG_DEVICE_USED = "This mobile has already used this coupon code"
 
 
 def _now() -> datetime:
@@ -68,6 +69,27 @@ def _phone_digits(phone: str | None) -> str:
     return "".join(c for c in str(phone or "") if c.isdigit())[-10:]
 
 
+def _normalize_device_id(raw: str | None) -> str | None:
+    value = "".join(c for c in str(raw or "") if c.isalnum() or c in "-_")
+    if len(value) < 8 or len(value) > 64:
+        return None
+    return value
+
+
+def _device_used_new_user_coupon(
+    db: Session,
+    device_id: str | None,
+    *,
+    exclude_order_id: int | None = None,
+) -> bool:
+    normalized = _normalize_device_id(device_id)
+    if not normalized:
+        return False
+    return repo.device_used_new_user_promo(
+        db, normalized, exclude_order_id=exclude_order_id
+    )
+
+
 def _has_used_promo(
     db: Session,
     promo: PromoCode,
@@ -104,11 +126,12 @@ def _eligibility_error(
     user: User | None,
     *,
     exclude_order_id: int | None = None,
+    device_id: str | None = None,
 ) -> PromoValidateResponse | None:
-    """One-time per mobile, plus new-user gate when audience=new_users."""
-    if user is None:
-        return None
-    if _has_used_promo(db, promo, user=user, exclude_order_id=exclude_order_id):
+    """One-time per mobile/account, new-user gate, and one new-user code per device."""
+    if user is not None and _has_used_promo(
+        db, promo, user=user, exclude_order_id=exclude_order_id
+    ):
         return PromoValidateResponse(
             valid=False,
             reason="one_time",
@@ -116,16 +139,27 @@ def _eligibility_error(
             code=promo.code,
             channel=promo.channel,
         )
-    if _audience(promo) == "new_users" and not _is_new_customer(
-        db, user, exclude_order_id=exclude_order_id
-    ):
-        return PromoValidateResponse(
-            valid=False,
-            reason="new_users",
-            message=MSG_NEW_USERS,
-            code=promo.code,
-            channel=promo.channel,
-        )
+    if _audience(promo) == "new_users":
+        if _device_used_new_user_coupon(
+            db, device_id, exclude_order_id=exclude_order_id
+        ):
+            return PromoValidateResponse(
+                valid=False,
+                reason="device_used",
+                message=MSG_DEVICE_USED,
+                code=promo.code,
+                channel=promo.channel,
+            )
+        if user is not None and not _is_new_customer(
+            db, user, exclude_order_id=exclude_order_id
+        ):
+            return PromoValidateResponse(
+                valid=False,
+                reason="new_users",
+                message=MSG_NEW_USERS,
+                code=promo.code,
+                channel=promo.channel,
+            )
     return None
 
 
@@ -194,12 +228,17 @@ def list_promos(db: Session, tenant_id: int | None) -> list[PromoOut]:
 
 
 def list_public_active_promos(
-    db: Session, tenant_id: int | None = None
+    db: Session,
+    tenant_id: int | None = None,
+    current_user: User | None = None,
+    device_id: str | None = None,
 ) -> list[dict]:
     rows = []
     for promo in repo.list_public_active(db, tenant_id):
         _maybe_auto_deactivate(db, promo)
         if _is_expired(promo) or not promo.is_active:
+            continue
+        if _eligibility_error(db, promo, current_user, device_id=device_id):
             continue
         rows.append(
             {
@@ -309,6 +348,7 @@ def validate_promo(
     tenant_id: int | None = None,
     current_user: User | None = None,
     exclude_order_id: int | None = None,
+    device_id: str | None = None,
 ) -> PromoValidateResponse:
     promo = repo.get_by_code(db, payload.code, tenant_id)
     if not promo:
@@ -362,7 +402,11 @@ def validate_promo(
         )
 
     blocked = _eligibility_error(
-        db, promo, current_user, exclude_order_id=exclude_order_id
+        db,
+        promo,
+        current_user,
+        exclude_order_id=exclude_order_id,
+        device_id=device_id or getattr(payload, "device_id", None),
     )
     if blocked:
         return blocked
@@ -416,6 +460,7 @@ def apply_promo_to_order(
     code: str,
     client_channel: str,
     tenant_id: int | None = None,
+    device_id: str | None = None,
 ) -> PromoValidateResponse:
     """
     Call when an order is placed. Validates, writes order snapshot,
@@ -426,6 +471,7 @@ def apply_promo_to_order(
         client_channel=client_channel,  # type: ignore[arg-type]
         subtotal=order.subtotal,
         delivery_fee=order.delivery_fee,
+        device_id=device_id,
     )
     customer = order.customer
     if customer is None and order.customer_id:
@@ -436,6 +482,7 @@ def apply_promo_to_order(
         tenant_id=tenant_id,
         current_user=customer,
         exclude_order_id=order.id,
+        device_id=device_id,
     )
     if not result.valid:
         return result
@@ -489,6 +536,7 @@ def apply_promo_to_order(
         order_id=order.id,
         user_id=order.customer_id,
         customer_phone=_phone_digits(customer.phone if customer else None),
+        device_id=_normalize_device_id(device_id),
         discount_amount=discount,
         percent_off_snapshot=promo.percent_off,
         discount_type_snapshot=_discount_type(promo),

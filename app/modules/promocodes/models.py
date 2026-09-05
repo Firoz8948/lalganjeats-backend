@@ -74,6 +74,7 @@ class PromoCodeUsage(Base):
     flat_off_snapshot     = Column(Numeric(10, 2), nullable=True)
     free_delivery_applied = Column(Boolean, default=False)
     client_channel        = Column(String(20), nullable=False, default="web")
+    device_id             = Column(String(64), nullable=True, index=True)
     created_at            = Column(DateTime(timezone=True), server_default=func.now())
 
     promo = relationship("PromoCode", back_populates="usages")

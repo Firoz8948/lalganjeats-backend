@@ -74,6 +74,28 @@ def list_usages_for_phone(
     return q.filter(PromoCodeUsage.user_id == user_id).first()
 
 
+def device_used_new_user_promo(
+    db: Session,
+    device_id: str,
+    *,
+    exclude_order_id: int | None = None,
+) -> bool:
+    """True when this device already applied a new-user coupon."""
+    if not device_id:
+        return False
+    q = (
+        db.query(PromoCodeUsage.id)
+        .join(PromoCode, PromoCode.id == PromoCodeUsage.promo_code_id)
+        .filter(
+            PromoCodeUsage.device_id == device_id,
+            PromoCode.audience == "new_users",
+        )
+    )
+    if exclude_order_id is not None:
+        q = q.filter(PromoCodeUsage.order_id != exclude_order_id)
+    return q.first() is not None
+
+
 def create(db: Session, promo: PromoCode) -> PromoCode:
     db.add(promo)
     db.flush()

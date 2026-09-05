@@ -1,6 +1,6 @@
 # backend/app/modules/promocodes/router.py
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -40,6 +40,7 @@ def validate_promocode(
     payload: schemas.PromoValidateRequest,
     db: Session = Depends(get_db),
     current: User | None = Depends(_optional_user),
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
 ):
     """
     Validate a promocode for the given client_channel.
@@ -48,7 +49,11 @@ def validate_promocode(
     """
     tenant_id = getattr(current, "tenant_id", None) if current else None
     return service.validate_promo(
-        db, payload, tenant_id=tenant_id, current_user=current
+        db,
+        payload,
+        tenant_id=tenant_id,
+        current_user=current,
+        device_id=payload.device_id or x_device_id,
     )
 
 
@@ -56,10 +61,16 @@ def validate_promocode(
 def active_public_promos(
     db: Session = Depends(get_db),
     current: User | None = Depends(_optional_user),
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
 ):
-    """Public offers list — secret codes are never returned here."""
+    """Public offers list — secret codes and ineligible coupons are never returned."""
     tenant_id = getattr(current, "tenant_id", None) if current else None
-    return service.list_public_active_promos(db, tenant_id=tenant_id)
+    return service.list_public_active_promos(
+        db,
+        tenant_id=tenant_id,
+        current_user=current,
+        device_id=x_device_id,
+    )
 
 
 @admin_router.get("", response_model=list[schemas.PromoOut])

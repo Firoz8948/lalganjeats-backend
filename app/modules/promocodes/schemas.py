@@ -105,6 +105,7 @@ class PromoValidateRequest(BaseModel):
     client_channel: ClientChannel = "web"
     subtotal: Optional[Decimal] = Field(None, ge=0)
     delivery_fee: Optional[Decimal] = Field(None, ge=0)
+    device_id: Optional[str] = Field(None, max_length=64)
 
     @field_validator("code")
     @classmethod

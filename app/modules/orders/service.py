@@ -339,6 +339,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
             code=payload.promo_code,
             client_channel=getattr(payload, "client_channel", None) or "web",
             tenant_id=restaurant.tenant_id,
+            device_id=getattr(payload, "device_id", None),
         )
         if not promo_result.valid:
             db.rollback()

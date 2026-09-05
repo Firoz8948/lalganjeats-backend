@@ -100,6 +100,8 @@ def run_auto_migrations():
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS audience VARCHAR(20) DEFAULT 'all';",
         "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(15);",
         "CREATE INDEX IF NOT EXISTS ix_promo_code_usages_customer_phone ON promo_code_usages(customer_phone);",
+        "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS device_id VARCHAR(64);",
+        "CREATE INDEX IF NOT EXISTS ix_promo_code_usages_device_id ON promo_code_usages(device_id);",
 
         # Cash remittance: keep order ids so cash on hand is not zeroed until PayU is paid.
         "ALTER TABLE cash_remittances ADD COLUMN IF NOT EXISTS order_ids TEXT;",

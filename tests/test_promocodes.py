@@ -140,6 +140,7 @@ def test_validate_rejects_existing_customer_for_new_users(monkeypatch):
     monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
     monkeypatch.setattr(promo_service, "_has_used_promo", lambda *a, **k: False)
     monkeypatch.setattr(promo_service, "_is_new_customer", lambda *a, **k: False)
+    monkeypatch.setattr(promo_service, "_device_used_new_user_coupon", lambda *a, **k: False)
 
     user = SimpleNamespace(id=54, phone="9876543210")
     result = validate_promo(
@@ -150,3 +151,67 @@ def test_validate_rejects_existing_customer_for_new_users(monkeypatch):
     assert result.valid is False
     assert result.reason == "new_users"
     assert result.message == "APPLICABLE FOR NEW USERS"
+
+
+def test_list_public_hides_new_user_coupon_when_not_eligible(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+
+    welcome = _promo(
+        code="100LALGANJ",
+        audience="new_users",
+        is_public=True,
+        description="New users",
+    )
+    everyday = _promo(
+        code="SAVE10",
+        audience="all",
+        is_public=True,
+        description="Everyone",
+    )
+    monkeypatch.setattr(
+        promo_service.repo,
+        "list_public_active",
+        lambda db, tenant_id=None: [welcome, everyday],
+    )
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+    monkeypatch.setattr(promo_service, "_is_expired", lambda p: False)
+    monkeypatch.setattr(
+        promo_service,
+        "_eligibility_error",
+        lambda db, promo, user, exclude_order_id=None, device_id=None: (
+            SimpleNamespace(reason="new_users")
+            if promo.code == "100LALGANJ"
+            else None
+        ),
+    )
+
+    rows = promo_service.list_public_active_promos(
+        db=SimpleNamespace(commit=lambda: None),
+        current_user=SimpleNamespace(id=9, phone="9999999999"),
+    )
+    assert [row["code"] for row in rows] == ["SAVE10"]
+
+
+def test_validate_rejects_new_user_coupon_on_same_device(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+    from app.modules.promocodes.schemas import PromoValidateRequest as Req
+
+    promo = _promo(code="100LALGANJ", audience="new_users")
+    monkeypatch.setattr(promo_service.repo, "get_by_code", _FakeRepo(promo).get_by_code)
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+    monkeypatch.setattr(promo_service, "_has_used_promo", lambda *a, **k: False)
+    monkeypatch.setattr(promo_service, "_is_new_customer", lambda *a, **k: True)
+    monkeypatch.setattr(promo_service, "_device_used_new_user_coupon", lambda *a, **k: True)
+
+    result = validate_promo(
+        db=SimpleNamespace(commit=lambda: None),
+        payload=Req(
+            code="100LALGANJ",
+            client_channel="web",
+            device_id="device-abc-123",
+        ),
+        current_user=SimpleNamespace(id=88, phone="1111111111"),
+    )
+    assert result.valid is False
+    assert result.reason == "device_used"
+    assert result.message.lower() == "this mobile has already used this coupon code"
