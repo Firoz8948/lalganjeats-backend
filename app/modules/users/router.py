@@ -265,6 +265,7 @@ def get_my_orders(
     orders = query.order_by(Order.created_at.desc()).all()
 
     from app.modules.delivery_partner.service import serialize_public_identity
+    from app.modules.otp.service import customer_visible_delivery_otp
     from app.modules.orders.payment_state import payment_failed
     from app.modules.orders.status_meta import customer_status_meta
 
@@ -303,6 +304,7 @@ def get_my_orders(
             "distance_km":    float(o.distance_km) if o.distance_km is not None else None,
             "eta_minutes":    o.eta_minutes,
             "delivery_partner": partner_public,
+            "delivery_otp": customer_visible_delivery_otp(o),
             "items": [
                 {
                     "name":     i.name,

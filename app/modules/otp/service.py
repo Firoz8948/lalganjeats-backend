@@ -100,6 +100,24 @@ def verify_login_otp(phone: str, otp_code: str, db: Session) -> None:
 
 # ── Delivery handover OTP (stored on Order) ────────────────
 
+CUSTOMER_HANDOVER_STATUSES = frozenset({"picked_up", "out_for_delivery"})
+
+
+def customer_visible_delivery_otp(order) -> str | None:
+    """
+    Same handover code the rider just SMS'd, for the customer's My Orders card.
+    Hidden until issued, after verify, or after the order leaves handover.
+    """
+    code = str(getattr(order, "delivery_otp", None) or "").strip()
+    if not code:
+        return None
+    if getattr(order, "delivery_otp_verified_at", None):
+        return None
+    if getattr(order, "status", None) not in CUSTOMER_HANDOVER_STATUSES:
+        return None
+    return code
+
+
 def issue_delivery_otp(order, db: Session) -> dict:
     """
     Generate delivery OTP, persist on order, SMS customer phone.

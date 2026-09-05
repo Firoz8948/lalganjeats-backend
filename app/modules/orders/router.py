@@ -42,7 +42,7 @@ def get_order(
         from fastapi import HTTPException
         raise HTTPException(403, "Not allowed")
 
-    return {
+    payload = {
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
@@ -61,3 +61,7 @@ def get_order(
         ],
         "created_at": order.created_at.isoformat() if order.created_at else None,
     }
+    if role == "customer" and order.customer_id == current_user.id:
+        from app.modules.otp.service import customer_visible_delivery_otp
+        payload["delivery_otp"] = customer_visible_delivery_otp(order)
+    return payload
