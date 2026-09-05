@@ -50,6 +50,10 @@ def get_dashboard(
     current_user=Depends(get_delivery_partner),
 ):
     profile = _ensure_profile(db, current_user.id)
+
+    if profile.is_online:
+        dispatch.ensure_open_offers_for_partner(db, current_user)
+
     today = datetime.utcnow().date()
 
     today_orders = db.query(Order).filter(
@@ -132,6 +136,8 @@ def toggle_online(
     profile = _ensure_profile(db, current_user.id)
     profile.is_online = not profile.is_online
     db.commit()
+    if profile.is_online:
+        dispatch.ensure_open_offers_for_partner(db, current_user)
     return {"is_online": profile.is_online}
 
 

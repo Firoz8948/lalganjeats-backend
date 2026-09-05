@@ -26,6 +26,25 @@ from app.modules.delivery import webhook as dp_webhook
 logger = logging.getLogger(__name__)
 
 WAIT_SECONDS = lambda: int(getattr(settings, "DELIVERY_OFFER_WAIT_SECONDS", 10) or 10)
+OPEN_DISPATCH_STATUSES = ("accepted", "ready")
+
+
+def is_broadcast_recipient(user, profile) -> bool:
+    """Approved delivery accounts get the offer even when currently offline."""
+    if profile is None:
+        return False
+    return bool(
+        getattr(user, "role", None) == "delivery_partner"
+        and getattr(user, "is_active", False)
+    )
+
+
+def is_open_unassigned_order(order) -> bool:
+    if order is None:
+        return False
+    if getattr(order, "delivery_partner_id", None):
+        return False
+    return getattr(order, "status", None) in OPEN_DISPATCH_STATUSES
 
 
 def _restaurant_coords(order: Order):
@@ -48,7 +67,6 @@ def ranked_partners(db: Session, order: Order) -> list[tuple[User, DeliveryProfi
         .filter(
             User.role == "delivery_partner",
             User.is_active == True,
-            DeliveryProfile.is_online == True,
             DeliveryProfile.current_latitude.isnot(None),
             DeliveryProfile.current_longitude.isnot(None),
         )
@@ -70,78 +88,141 @@ def ranked_partners(db: Session, order: Order) -> list[tuple[User, DeliveryProfi
     return ranked
 
 
+def _broadcast_partners(db: Session, order: Order) -> list[tuple[User, DeliveryProfile]]:
+    tenant_id = order.tenant_id or (order.restaurant.tenant_id if order.restaurant else None)
+    q = (
+        db.query(User, DeliveryProfile)
+        .join(DeliveryProfile, DeliveryProfile.user_id == User.id)
+        .filter(
+            User.role == "delivery_partner",
+            User.is_active == True,
+        )
+    )
+    if tenant_id is not None:
+        q = q.filter(User.tenant_id == tenant_id)
+    return [
+        (user, profile)
+        for user, profile in q.all()
+        if is_broadcast_recipient(user, profile)
+    ]
+
+
+def _upsert_offer(
+    db: Session,
+    order: Order,
+    partner: User,
+    profile: DeliveryProfile | None = None,
+    r_lat: float | None = None,
+    r_lng: float | None = None,
+) -> DeliveryOffer:
+    km = 0.0
+    if (
+        r_lat is not None
+        and profile is not None
+        and profile.current_latitude is not None
+        and profile.current_longitude is not None
+    ):
+        try:
+            km, _ = distance_and_drive_minutes(
+                float(profile.current_latitude),
+                float(profile.current_longitude),
+                r_lat,
+                r_lng,
+            )
+        except Exception:
+            km = 0.0
+
+    existing = (
+        db.query(DeliveryOffer)
+        .filter(
+            DeliveryOffer.order_id == order.id,
+            DeliveryOffer.delivery_partner_id == partner.id,
+        )
+        .first()
+    )
+    if not existing:
+        offer = DeliveryOffer(
+            order_id=order.id,
+            delivery_partner_id=partner.id,
+            rank=1,
+            distance_km=km,
+            status="offered",
+            expires_at=None,
+        )
+        db.add(offer)
+        return offer
+    if existing.status in ("expired", "superseded"):
+        existing.status = "offered"
+        existing.expires_at = None
+        existing.distance_km = km
+    return existing
+
+
+def ensure_open_offers_for_partner(db: Session, partner: User) -> int:
+    """When a rider comes online later, attach every still-unassigned order."""
+    if not partner or partner.role != "delivery_partner" or not partner.is_active:
+        return 0
+    profile = (
+        db.query(DeliveryProfile)
+        .filter(DeliveryProfile.user_id == partner.id)
+        .first()
+    )
+    if not is_broadcast_recipient(partner, profile):
+        return 0
+
+    q = db.query(Order).filter(
+        Order.delivery_partner_id.is_(None),
+        Order.status.in_(OPEN_DISPATCH_STATUSES),
+    )
+    if partner.tenant_id is not None:
+        q = q.filter(
+            (Order.tenant_id == partner.tenant_id) | (Order.tenant_id.is_(None))
+        )
+    created = 0
+    for order in q.all():
+        if not is_open_unassigned_order(order):
+            continue
+        r_lat, r_lng = _restaurant_coords(order)
+        before = (
+            db.query(DeliveryOffer.id)
+            .filter(
+                DeliveryOffer.order_id == order.id,
+                DeliveryOffer.delivery_partner_id == partner.id,
+                DeliveryOffer.status == "offered",
+            )
+            .first()
+        )
+        _upsert_offer(db, order, partner, profile, r_lat, r_lng)
+        if not before:
+            created += 1
+    if created:
+        db.commit()
+    return created
+
+
 def start_dispatch(order_id: int) -> None:
-    """Broadcast delivery offer immediately to all active online delivery partners."""
+    """Broadcast delivery offer to every approved delivery partner, online or not."""
     db = SessionLocal()
     try:
         order = db.query(Order).filter(Order.id == order_id).first()
-        if not order:
-            return
-        if order.delivery_partner_id:
-            return
-        if order.status not in ("accepted", "ready"):
+        if not order or not is_open_unassigned_order(order):
             return
 
-        tenant_id = order.tenant_id or (order.restaurant.tenant_id if order.restaurant else None)
         r_lat, r_lng = _restaurant_coords(order)
-
-        q = (
-            db.query(User, DeliveryProfile)
-            .join(DeliveryProfile, DeliveryProfile.user_id == User.id)
-            .filter(
-                User.role == "delivery_partner",
-                User.is_active == True,
-                DeliveryProfile.is_online == True,
-            )
-        )
-        if tenant_id is not None:
-            q = q.filter(User.tenant_id == tenant_id)
-
-        partners = q.all()
+        partners = _broadcast_partners(db, order)
         if not partners:
-            logger.info("No online DPs available to broadcast order %s", order_id)
+            logger.info("No delivery partners available to broadcast order %s", order_id)
             return
 
         for user, profile in partners:
-            km = 0.0
-            if r_lat is not None and profile.current_latitude is not None and profile.current_longitude is not None:
-                try:
-                    km, _ = distance_and_drive_minutes(
-                        float(profile.current_latitude),
-                        float(profile.current_longitude),
-                        r_lat,
-                        r_lng,
-                    )
-                except Exception:
-                    km = 0.0
-
-            existing = (
-                db.query(DeliveryOffer)
-                .filter(
-                    DeliveryOffer.order_id == order_id,
-                    DeliveryOffer.delivery_partner_id == user.id,
-                )
-                .first()
-            )
-            if not existing:
-                offer = DeliveryOffer(
-                    order_id=order_id,
-                    delivery_partner_id=user.id,
-                    rank=1,
-                    distance_km=km,
-                    status="offered",
-                    expires_at=None,
-                )
-                db.add(offer)
-                logger.info("Broadcast offered order %s to DP %s (km=%s)", order_id, user.id, km)
-            elif existing.status in ("expired", "superseded"):
-                existing.status = "offered"
-                existing.expires_at = None
+            _upsert_offer(db, order, user, profile, r_lat, r_lng)
+            logger.info("Broadcast offered order %s to DP %s", order_id, user.id)
 
         db.commit()
 
-        # Send FCM multicast push to all online delivery partners
-        fcm_tokens = [user.fcm_token for user, _ in partners if getattr(user, "fcm_token", None)]
+        fcm_tokens = [
+            user.fcm_token for user, _ in partners if getattr(user, "fcm_token", None)
+        ]
         if fcm_tokens:
             try:
                 from app.core.fcm import send_multicast_push
