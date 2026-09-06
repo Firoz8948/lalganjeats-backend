@@ -26,7 +26,7 @@ from app.modules.payments.models import (
     PaymentSettings, RestaurantEarning, DeliveryEarning,
     Withdrawal, BankAccount, CashRemittance,
 )
-from app.modules.promocodes.models import PromoCode, PromoCodeUsage  # noqa: F401
+from app.modules.promocodes.models import PromoCode, PromoCodeUsage, PromoCodeRestaurant  # noqa: F401
 from app.modules.admin.models import ImpersonationSession  # noqa: F401
 from app.modules.admin.reports.models import ReportDelivery  # noqa: F401
 from app.modules.delivery_partner.models import DeliveryPartnerDetails  # noqa: F401

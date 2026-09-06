@@ -53,6 +53,32 @@ class PromoCode(Base):
         cascade="all, delete-orphan",
     )
     restaurant = relationship("Restaurant", foreign_keys=[restaurant_id])
+    restaurant_links = relationship(
+        "PromoCodeRestaurant",
+        back_populates="promo",
+        cascade="all, delete-orphan",
+    )
+
+
+class PromoCodeRestaurant(Base):
+    """Optional restaurant scope. No rows = all restaurants."""
+    __tablename__ = "promo_code_restaurants"
+    __table_args__ = (
+        UniqueConstraint("promo_code_id", "restaurant_id", name="uq_promo_code_restaurant"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    promo_code_id = Column(
+        Integer, ForeignKey("promo_codes.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    restaurant_id = Column(
+        Integer, ForeignKey("restaurants.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+
+    promo = relationship("PromoCode", back_populates="restaurant_links")
+    restaurant = relationship("Restaurant")
 
 
 class PromoCodeUsage(Base):

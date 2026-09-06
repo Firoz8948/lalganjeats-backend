@@ -26,6 +26,7 @@ def _promo(**kwargs):
         expires_at=None,
         audience="all",
         restaurant_id=None,
+        restaurant_ids=None,
         description=None,
     )
     defaults.update(kwargs)
@@ -287,3 +288,75 @@ def test_list_public_hides_code_for_other_restaurant(monkeypatch):
         restaurant_id=7,
     )
     assert [row["code"] for row in matching] == ["HOTNCOOL10", "SAVE10"]
+
+
+def test_validate_allows_code_for_any_ticked_restaurant(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+
+    promo = _promo(code="GROUP4", restaurant_id=None, restaurant_ids=[7, 9, 12])
+    monkeypatch.setattr(promo_service.repo, "get_by_code", _FakeRepo(promo).get_by_code)
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+
+    for rid in (7, 9, 12):
+        result = validate_promo(
+            db=SimpleNamespace(commit=lambda: None),
+            payload=PromoValidateRequest(
+                code="GROUP4",
+                client_channel="web",
+                subtotal=Decimal("200"),
+                restaurant_id=rid,
+            ),
+        )
+        assert result.valid is True, rid
+
+
+def test_validate_rejects_code_when_restaurant_not_ticked(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+
+    promo = _promo(code="GROUP4", restaurant_id=None, restaurant_ids=[7, 9, 12])
+    monkeypatch.setattr(promo_service.repo, "get_by_code", _FakeRepo(promo).get_by_code)
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+
+    result = validate_promo(
+        db=SimpleNamespace(commit=lambda: None),
+        payload=PromoValidateRequest(
+            code="GROUP4",
+            client_channel="web",
+            restaurant_id=3,
+        ),
+    )
+    assert result.valid is False
+    assert result.reason == "restaurant"
+    assert result.message == "Code not applicable for this restaurant"
+
+
+def test_list_public_shows_only_for_ticked_restaurants(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+
+    scoped = _promo(
+        code="GROUP4",
+        restaurant_id=None,
+        restaurant_ids=[7, 9],
+        is_public=True,
+    )
+    global_code = _promo(code="SAVE10", restaurant_id=None, restaurant_ids=None, is_public=True)
+    monkeypatch.setattr(
+        promo_service.repo,
+        "list_public_active",
+        lambda db, tenant_id=None: [scoped, global_code],
+    )
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+    monkeypatch.setattr(promo_service, "_is_expired", lambda p: False)
+    monkeypatch.setattr(promo_service, "_eligibility_error", lambda *a, **k: None)
+
+    hidden = promo_service.list_public_active_promos(
+        db=SimpleNamespace(commit=lambda: None),
+        restaurant_id=3,
+    )
+    assert [row["code"] for row in hidden] == ["SAVE10"]
+
+    shown = promo_service.list_public_active_promos(
+        db=SimpleNamespace(commit=lambda: None),
+        restaurant_id=9,
+    )
+    assert [row["code"] for row in shown] == ["GROUP4", "SAVE10"]

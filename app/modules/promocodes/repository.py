@@ -1,11 +1,20 @@
 # backend/app/modules/promocodes/repository.py
-from sqlalchemy.orm import Session, joinedload
-from app.modules.promocodes.models import PromoCode, PromoCodeUsage
+from sqlalchemy.orm import Session, joinedload, selectinload
+from app.modules.promocodes.models import PromoCode, PromoCodeUsage, PromoCodeRestaurant
 from app.modules.orders.models import Order
 
 
+def _restaurant_load():
+    return (
+        joinedload(PromoCode.restaurant),
+        selectinload(PromoCode.restaurant_links).joinedload(
+            PromoCodeRestaurant.restaurant
+        ),
+    )
+
+
 def get_by_id(db: Session, promo_id: int, tenant_id: int | None) -> PromoCode | None:
-    q = db.query(PromoCode).options(joinedload(PromoCode.restaurant)).filter(
+    q = db.query(PromoCode).options(*_restaurant_load()).filter(
         PromoCode.id == promo_id
     )
     if tenant_id is not None:
@@ -16,21 +25,21 @@ def get_by_id(db: Session, promo_id: int, tenant_id: int | None) -> PromoCode | 
 def get_by_code(
     db: Session, code: str, tenant_id: int | None = None
 ) -> PromoCode | None:
-    q = db.query(PromoCode).filter(PromoCode.code == code.upper())
+    q = db.query(PromoCode).options(*_restaurant_load()).filter(PromoCode.code == code.upper())
     if tenant_id is not None:
         q = q.filter(PromoCode.tenant_id == tenant_id)
     return q.first()
 
 
 def list_promos(db: Session, tenant_id: int | None) -> list[PromoCode]:
-    q = db.query(PromoCode).options(joinedload(PromoCode.restaurant))
+    q = db.query(PromoCode).options(*_restaurant_load())
     if tenant_id is not None:
         q = q.filter(PromoCode.tenant_id == tenant_id)
     return q.order_by(PromoCode.created_at.desc()).all()
 
 
 def list_public_active(db: Session, tenant_id: int | None = None) -> list[PromoCode]:
-    q = db.query(PromoCode).filter(
+    q = db.query(PromoCode).options(*_restaurant_load()).filter(
         PromoCode.is_active == True,
         PromoCode.is_public == True,
     )

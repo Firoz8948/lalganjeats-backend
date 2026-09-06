@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from app.modules.promocodes.models import PromoCode, PromoCodeUsage
+from app.modules.promocodes.models import PromoCode, PromoCodeUsage, PromoCodeRestaurant
 from app.modules.promocodes import repository as repo
 from app.modules.promocodes.schemas import (
     PromoCreateRequest,
@@ -25,23 +25,90 @@ MSG_DEVICE_USED = "This mobile has already used this coupon code"
 MSG_RESTAURANT = "Code not applicable for this restaurant"
 
 
-def _promo_restaurant_id(promo: PromoCode) -> int | None:
-    raw = getattr(promo, "restaurant_id", None)
+def _promo_restaurant_ids(promo: PromoCode) -> set[int]:
+    raw_ids = getattr(promo, "restaurant_ids", None)
+    if raw_ids:
+        ids: set[int] = set()
+        for value in raw_ids:
+            try:
+                ids.add(int(value))
+            except (TypeError, ValueError):
+                continue
+        if ids:
+            return ids
+    links = getattr(promo, "restaurant_links", None) or []
+    ids = set()
+    for link in links:
+        rid = getattr(link, "restaurant_id", None)
+        try:
+            if rid is not None:
+                ids.add(int(rid))
+        except (TypeError, ValueError):
+            continue
+    if ids:
+        return ids
+    legacy = getattr(promo, "restaurant_id", None)
     try:
-        return int(raw) if raw is not None else None
+        return {int(legacy)} if legacy is not None else set()
     except (TypeError, ValueError):
-        return None
+        return set()
+
+
+def _promo_restaurant_id(promo: PromoCode) -> int | None:
+    ids = sorted(_promo_restaurant_ids(promo))
+    return ids[0] if len(ids) == 1 else None
 
 
 def _restaurant_mismatch(promo: PromoCode, restaurant_id: int | None) -> bool:
-    scoped = _promo_restaurant_id(promo)
-    if scoped is None:
+    scoped = _promo_restaurant_ids(promo)
+    if not scoped:
         return False
     try:
         current = int(restaurant_id) if restaurant_id is not None else None
     except (TypeError, ValueError):
         current = None
-    return current != scoped
+    return current not in scoped
+
+
+def _resolve_restaurant_ids(
+    db: Session, tenant_id: int | None, restaurant_ids: list[int] | None
+) -> list[int]:
+    unique: list[int] = []
+    for raw in restaurant_ids or []:
+        try:
+            rid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if rid not in unique:
+            unique.append(rid)
+    return [
+        rid
+        for rid in (_resolve_restaurant_id(db, tenant_id, item) for item in unique)
+        if rid is not None
+    ]
+
+
+def _set_promo_restaurants(
+    db: Session,
+    promo: PromoCode,
+    tenant_id: int | None,
+    restaurant_ids: list[int] | None,
+) -> None:
+    ids = _resolve_restaurant_ids(db, tenant_id, restaurant_ids)
+    promo.restaurant_links.clear()
+    for rid in ids:
+        promo.restaurant_links.append(
+            PromoCodeRestaurant(restaurant_id=rid)
+        )
+    promo.restaurant_id = ids[0] if len(ids) == 1 else None
+
+
+def _ids_from_payload(payload) -> list[int]:
+    ids = list(getattr(payload, "restaurant_ids", None) or [])
+    if ids:
+        return ids
+    single = getattr(payload, "restaurant_id", None)
+    return [single] if single is not None else []
 
 
 def _resolve_restaurant_id(
@@ -232,6 +299,14 @@ def _to_out(promo: PromoCode) -> PromoOut:
         used = 0  # unlimited — count from usages if needed later
     else:
         used = max(0, (promo.max_uses or 0) - (promo.remaining_uses or 0))
+    ids = sorted(_promo_restaurant_ids(promo))
+    names: list[str] = []
+    for link in getattr(promo, "restaurant_links", None) or []:
+        rest = getattr(link, "restaurant", None)
+        if rest and rest.name:
+            names.append(rest.name)
+    if not names and getattr(promo, "restaurant", None) is not None:
+        names = [promo.restaurant.name]
     return PromoOut(
         id=promo.id,
         code=promo.code,
@@ -250,12 +325,10 @@ def _to_out(promo: PromoCode) -> PromoOut:
         is_public=bool(getattr(promo, "is_public", False)),
         is_expired=_is_expired(promo),
         description=promo.description,
-        restaurant_id=_promo_restaurant_id(promo),
-        restaurant_name=(
-            promo.restaurant.name
-            if getattr(promo, "restaurant", None) is not None
-            else None
-        ),
+        restaurant_id=ids[0] if len(ids) == 1 else None,
+        restaurant_name=(", ".join(names) if names else None),
+        restaurant_ids=ids,
+        restaurant_names=names,
         created_at=promo.created_at,
     )
 
@@ -329,9 +402,10 @@ def create_promo(
         is_active=True,
         is_public=bool(payload.is_public),
         description=payload.description,
-        restaurant_id=_resolve_restaurant_id(db, tenant_id, payload.restaurant_id),
+        restaurant_id=None,
     )
     repo.create(db, promo)
+    _set_promo_restaurants(db, promo, tenant_id, _ids_from_payload(payload))
     db.commit()
     created = repo.get_by_id(db, promo.id, tenant_id) or promo
     return _to_out(created)
@@ -370,10 +444,17 @@ def update_promo(
                 promo.is_active = False
         del data["max_uses"]
 
+    if "restaurant_ids" in data or "restaurant_id" in data:
+        ids = data.pop("restaurant_ids", None)
+        if ids is None:
+            single = data.pop("restaurant_id", None)
+            ids = [single] if single is not None else []
+        else:
+            data.pop("restaurant_id", None)
+        _set_promo_restaurants(db, promo, tenant_id, ids)
+
     if "restaurant_id" in data:
-        data["restaurant_id"] = _resolve_restaurant_id(
-            db, tenant_id, data["restaurant_id"]
-        )
+        data.pop("restaurant_id", None)
 
     for key, value in data.items():
         setattr(promo, key, value)

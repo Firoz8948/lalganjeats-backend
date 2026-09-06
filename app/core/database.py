@@ -100,6 +100,26 @@ def run_auto_migrations():
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS audience VARCHAR(20) DEFAULT 'all';",
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS restaurant_id INTEGER;",
         "CREATE INDEX IF NOT EXISTS ix_promo_codes_restaurant_id ON promo_codes(restaurant_id);",
+        """
+        CREATE TABLE IF NOT EXISTS promo_code_restaurants (
+            id SERIAL PRIMARY KEY,
+            promo_code_id INTEGER NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+            restaurant_id INTEGER NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+            CONSTRAINT uq_promo_code_restaurant UNIQUE (promo_code_id, restaurant_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_promo_code_restaurants_promo ON promo_code_restaurants(promo_code_id);",
+        "CREATE INDEX IF NOT EXISTS ix_promo_code_restaurants_restaurant ON promo_code_restaurants(restaurant_id);",
+        """
+        INSERT INTO promo_code_restaurants (promo_code_id, restaurant_id)
+        SELECT id, restaurant_id FROM promo_codes
+        WHERE restaurant_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM promo_code_restaurants p
+            WHERE p.promo_code_id = promo_codes.id
+              AND p.restaurant_id = promo_codes.restaurant_id
+          );
+        """,
         "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(15);",
         "CREATE INDEX IF NOT EXISTS ix_promo_code_usages_customer_phone ON promo_code_usages(customer_phone);",
         "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS device_id VARCHAR(64);",
