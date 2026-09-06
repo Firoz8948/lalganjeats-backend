@@ -61,6 +61,8 @@ def run_auto_migrations():
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS opening_time VARCHAR(20);",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS closing_time VARCHAR(20);",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS show_packing_charge BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS packing_charge NUMERIC(10,2) DEFAULT 0;",
 
         # orders table
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS otp VARCHAR(10);",
@@ -81,6 +83,7 @@ def run_auto_migrations():
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS platform_fee NUMERIC(10,2) DEFAULT 0;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS admin_earning NUMERIC(10,2) DEFAULT 0;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_partner_earning NUMERIC(10,2) DEFAULT 0;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS packing_charge NUMERIC(10,2) DEFAULT 0;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_remittance_id INT;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code_id INT;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code VARCHAR(50);",

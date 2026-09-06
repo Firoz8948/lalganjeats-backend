@@ -24,6 +24,7 @@ from app.modules.restaurants.service_area import (
 from app.modules.users.models import Address, User
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.payments.payment_split import calculate_split
+from app.modules.payments.breakdown import packing_charge_for_restaurant
 from sqlalchemy.orm import joinedload
 from app.modules.superadmin.models import Tenant
 
@@ -250,11 +251,13 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         )
 
     pay_settings = ensure_payment_settings(db)
+    packing_charge = packing_charge_for_restaurant(restaurant)
     split = calculate_split(
         display_total,
         actual_total,
         pay_settings,
         delivery_charge=zone_delivery_charge,
+        packing_charge=packing_charge,
     )
 
     discount = 0.0
@@ -296,6 +299,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         total_amount=Decimal(str(customer_pays)),
         display_total=Decimal(str(display_total)),
         actual_total=Decimal(str(actual_total)),
+        packing_charge=Decimal(str(packing_charge)),
         # Store fixed checkout platform charge (₹), not legacy %.
         platform_fee=Decimal(str(split.platform_charge)),
         admin_earning=Decimal(str(split.admin_earning)),
@@ -417,6 +421,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         "delivery_fee": float(order.delivery_fee or 0),
         "discount": float(order.discount or 0),
         "platform_charge": float(order.platform_fee or 0),
+        "packing_charge": float(getattr(order, "packing_charge", 0) or 0),
         "distance_km": float(order.distance_km) if order.distance_km is not None else None,
         "eta_minutes": order.eta_minutes,
         "needs_payment": order.payment_method == "online" and order.payment_status != "paid",

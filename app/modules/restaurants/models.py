@@ -83,6 +83,8 @@ class Restaurant(Base):
     is_open       = Column(Boolean, default=True)
     is_approved   = Column(Boolean, default=False)
     is_active     = Column(Boolean, default=True)
+    show_packing_charge = Column(Boolean, default=False)
+    packing_charge = Column(DECIMAL(10, 2), default=0)
     opening_time  = Column(Time)
     closing_time  = Column(Time)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())

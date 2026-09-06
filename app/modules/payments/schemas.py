@@ -103,3 +103,4 @@ class SplitPreview(BaseModel):
     delivery_earning: float
     admin_earning: float
     customer_pays: float
+    packing_charge: float = 0

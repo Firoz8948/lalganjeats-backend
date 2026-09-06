@@ -7,6 +7,7 @@ from app.core.maps import haversine_km
 from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
+from app.modules.payments.breakdown import packing_charge_for_restaurant
 from app.modules.restaurants.service_area import (
     delivery_charge_for_distance,
     matching_delivery_exception,
@@ -125,6 +126,8 @@ def _to_public(
             if restaurant.business_category
             else None
         ),
+        show_packing_charge=bool(getattr(restaurant, "show_packing_charge", False)),
+        packing_charge=packing_charge_for_restaurant(restaurant),
         image_emoji=EMOJI_PALETTE[index % len(EMOJI_PALETTE)],
         image_bg=BG_PALETTE[index % len(BG_PALETTE)],
     ).model_dump()
@@ -331,6 +334,8 @@ def create_restaurant(
         is_open=True,
         is_approved=payload.is_approved,
         is_active=True,
+        show_packing_charge=bool(payload.show_packing_charge),
+        packing_charge=payload.packing_charge if payload.packing_charge is not None else 0,
     )
     db.add(restaurant)
     db.commit()
@@ -367,6 +372,8 @@ def _admin_row(r: Restaurant) -> dict:
         "is_open": r.is_open,
         "is_approved": r.is_approved,
         "is_active": r.is_active,
+        "show_packing_charge": bool(getattr(r, "show_packing_charge", False)),
+        "packing_charge": float(getattr(r, "packing_charge", 0) or 0),
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 

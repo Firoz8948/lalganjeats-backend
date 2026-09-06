@@ -17,6 +17,7 @@ class SplitResult:
     delivery_earning: float
     admin_earning: float
     customer_pays: float
+    packing_charge: float = 0.0
 
 
 def calculate_split(
@@ -25,10 +26,12 @@ def calculate_split(
     settings: PaymentSettings,
     delivery_charge: float,
     discount: float = 0,
+    packing_charge: float = 0,
 ) -> SplitResult:
     # Delivery is priced by the tenant's matching distance zone before the
     # split is calculated. Payment settings no longer define a fixed fee.
     delivery_charge = round(float(delivery_charge), 2)
+    packing_charge = round(float(packing_charge or 0), 2)
     platform_charge = round(
         float(getattr(settings, "platform_charge_rupees", 0) or 0),
         2,
@@ -41,6 +44,7 @@ def calculate_split(
         delivery_charge=delivery_charge,
         discount=discount,
         delivery_payout=delivery_charge,
+        packing_charge=packing_charge,
     )
     c = breakdown.customer
     a = breakdown.admin
@@ -55,4 +59,5 @@ def calculate_split(
         delivery_earning=a.delivery_payout,
         admin_earning=a.admin_profit,
         customer_pays=c.customer_total,
+        packing_charge=packing_charge,
     )

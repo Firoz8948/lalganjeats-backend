@@ -46,6 +46,9 @@ def _serialize_order(o: Order) -> dict:
     seller_total = items_seller_sum if items_seller_sum > 0 else (
         float(o.actual_total) if o.actual_total is not None else float(o.total_amount)
     )
+    packing_charge = round(float(getattr(o, "packing_charge", 0) or 0), 2)
+    if items_seller_sum > 0 or o.actual_total is not None:
+        seller_total = round(float(seller_total) + packing_charge, 2)
 
     return {
         "id":               o.id,
@@ -59,6 +62,7 @@ def _serialize_order(o: Order) -> dict:
             bike_name=bike_name,
         ),
         "total_amount":     seller_total,
+        "packing_charge":   packing_charge,
         "payment_method":   o.payment_method,
         "payment_status":   o.payment_status,
         "customer":         o.customer.full_name if o.customer else None,
@@ -124,9 +128,12 @@ def get_dashboard(
             (float(i.actual_price) if i.actual_price is not None else float(i.price)) * i.quantity
             for i in o.items
         )
+        packing = float(getattr(o, "packing_charge", 0) or 0)
         if items_sum > 0:
-            return items_sum
-        return float(o.actual_total) if o.actual_total is not None else float(o.total_amount or 0)
+            return round(items_sum + packing, 2)
+        if o.actual_total is not None:
+            return round(float(o.actual_total) + packing, 2)
+        return float(o.total_amount or 0)
 
     total_revenue = sum(_seller_order_total(o) for o in picked_up_or_delivered_orders)
 
@@ -477,9 +484,12 @@ def get_earnings(
             (float(i.actual_price) if i.actual_price is not None else float(i.price)) * i.quantity
             for i in o.items
         )
+        packing = float(getattr(o, "packing_charge", 0) or 0)
         if items_sum > 0:
-            return items_sum
-        return float(o.actual_total) if o.actual_total is not None else float(o.total_amount or 0)
+            return round(items_sum + packing, 2)
+        if o.actual_total is not None:
+            return round(float(o.actual_total) + packing, 2)
+        return float(o.total_amount or 0)
 
     total_earned = sum(_order_seller_amount(o) for o in orders)
     unsettled_amount = sum(

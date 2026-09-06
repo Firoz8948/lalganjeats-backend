@@ -28,6 +28,8 @@ class RestaurantPublicResponse(BaseModel):
     longitude: float | None = None
     business_category_id: int | None = None
     business_category: str | None = None
+    show_packing_charge: bool = False
+    packing_charge: float = 0
 
 
 class RestaurantCreateRequest(BaseModel):
@@ -49,6 +51,8 @@ class RestaurantCreateRequest(BaseModel):
     owner_password: str | None = Field(None, min_length=4, max_length=100)
     business_category_id: int | None = None
     is_approved: bool = True
+    show_packing_charge: bool = False
+    packing_charge: Optional[Decimal] = None
 
 
 class RestaurantUpdateRequest(BaseModel):
@@ -71,3 +75,5 @@ class RestaurantUpdateRequest(BaseModel):
     owner_username: Optional[str] = Field(None, max_length=80)
     owner_password: Optional[str] = Field(None, min_length=4, max_length=100)
     business_category_id: Optional[int] = None
+    show_packing_charge: Optional[bool] = None
+    packing_charge: Optional[Decimal] = None

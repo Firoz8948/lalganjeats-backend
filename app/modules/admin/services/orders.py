@@ -160,13 +160,15 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
     ):
         from app.modules.payments.breakdown import build_order_price_breakdown
 
+        packing = customer.packing_charge
         view = build_order_price_breakdown(
             display_price=display_price,
-            hotel_payout=hotel_price,
+            hotel_payout=max(0.0, round(float(hotel_price) - packing, 2)),
             platform_fee=platform_charge,
             delivery_charge=customer.delivery_charge,
             discount=customer.discount,
             delivery_payout=delivery_price,
+            packing_charge=packing,
         )
         customer = view.customer
         admin = view.admin
@@ -195,6 +197,7 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         "platform_fee": customer.platform_fee,
         "platform_charge": customer.platform_fee,
         "delivery_charge": customer.delivery_charge,
+        "packing_charge": customer.packing_charge,
         "discount": customer.discount,
         "customer_total": customer.customer_total,
         # Admin view

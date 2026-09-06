@@ -300,6 +300,7 @@ def get_my_orders(
             "payment_status": o.payment_status,
             "subtotal":       float(o.subtotal),
             "delivery_fee":   float(o.delivery_fee or 0),
+            "packing_charge": float(getattr(o, "packing_charge", 0) or 0),
             "total_amount":   float(o.total_amount),
             "distance_km":    float(o.distance_km) if o.distance_km is not None else None,
             "eta_minutes":    o.eta_minutes,

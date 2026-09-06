@@ -30,6 +30,7 @@ class Order(Base):
     total_amount        = Column(DECIMAL(10, 2), nullable=False)
     display_total       = Column(DECIMAL(10, 2), nullable=True)
     actual_total        = Column(DECIMAL(10, 2), nullable=True)
+    packing_charge      = Column(DECIMAL(10, 2), default=0)
     platform_fee        = Column(DECIMAL(10, 2), nullable=True)
     admin_earning       = Column(DECIMAL(10, 2), nullable=True)
     delivery_partner_earning = Column(DECIMAL(10, 2), nullable=True)

@@ -665,6 +665,7 @@ def apply_promo_to_order(
             platform_fee=float(order.platform_fee or 0),
             delivery_charge=float(order.delivery_fee or 0),
             discount=float(discount),
+            packing_charge=float(getattr(order, "packing_charge", 0) or 0),
         )
         order.total_amount = D(str(cv.customer_total))
         order.admin_earning = D(

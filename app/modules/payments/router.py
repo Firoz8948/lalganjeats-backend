@@ -70,11 +70,13 @@ def process_payment_split(order_id: int) -> None:
 
         pay_settings = ensure_payment_settings(db)
         display_total, actual_total = order_display_actual_totals(order)
+        packing_charge = float(getattr(order, "packing_charge", 0) or 0)
         split = calculate_split(
             display_total,
             actual_total,
             pay_settings,
             delivery_charge=float(order.delivery_fee or 0),
+            packing_charge=packing_charge,
         )
 
         order.display_total = split.display_total
@@ -260,11 +262,13 @@ def create_razorpay_order(
 
     pay_settings = ensure_payment_settings(db)
     display_total, actual_total = order_display_actual_totals(order)
+    packing_charge = float(getattr(order, "packing_charge", 0) or 0)
     split = calculate_split(
         display_total,
         actual_total,
         pay_settings,
         delivery_charge=float(order.delivery_fee or 0),
+        packing_charge=packing_charge,
     )
 
     rz_order = create_order(
@@ -322,7 +326,7 @@ def payu_initiate(
     if (order.payment_status or "").lower() == "paid":
         raise HTTPException(400, "Order is already paid")
 
-    # Charge what the customer owes (food + delivery + platform − discount).
+    # Charge what the customer owes (food + delivery + platform + packing − discount).
     # Do NOT use display_total — that is food subtotal only.
     amount = float(order.total_amount or 0)
     if amount <= 0:

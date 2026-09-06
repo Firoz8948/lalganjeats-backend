@@ -50,6 +50,7 @@ def get_order(
         "payment_status": order.payment_status,
         "total_amount": float(order.total_amount),
         "delivery_fee": float(order.delivery_fee or 0),
+        "packing_charge": float(getattr(order, "packing_charge", 0) or 0),
         "delivery_address": order.delivery_address,
         "distance_km": float(order.distance_km) if order.distance_km is not None else None,
         "eta_minutes": order.eta_minutes,

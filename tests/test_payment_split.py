@@ -31,6 +31,58 @@ def test_customer_view_formula():
     assert c.customer_total == 117.72
 
 
+def test_customer_total_includes_packing_charge():
+    c = customer_price_view(
+        display_price=91,
+        platform_fee=2,
+        delivery_charge=24.72,
+        packing_charge=10,
+    )
+    assert c.packing_charge == 10
+    assert c.customer_total == 127.72
+
+
+def test_hotel_transfer_includes_packing_charge_admin_pl_unchanged():
+    bd = build_order_price_breakdown(
+        display_price=91,
+        hotel_payout=70,
+        platform_fee=2,
+        delivery_charge=24.72,
+        packing_charge=10,
+    )
+    assert bd.customer.customer_total == 127.72
+    assert bd.admin.hotel_payout == 80
+    assert bd.admin.admin_profit == 23.0
+
+
+def test_packing_charge_hidden_when_toggle_off():
+    from app.modules.payments.breakdown import packing_charge_for_restaurant
+
+    restaurant = SimpleNamespace(show_packing_charge=False, packing_charge=15)
+    assert packing_charge_for_restaurant(restaurant) == 0
+
+
+def test_packing_charge_uses_amount_when_toggle_on():
+    from app.modules.payments.breakdown import packing_charge_for_restaurant
+
+    restaurant = SimpleNamespace(show_packing_charge=True, packing_charge=15)
+    assert packing_charge_for_restaurant(restaurant) == 15
+
+
+def test_calculate_split_adds_packing_to_customer_and_hotel():
+    split = calculate_split(
+        display_total=100,
+        actual_price_total=70,
+        settings=_settings(platform_charge_rupees=2),
+        delivery_charge=20,
+        packing_charge=10,
+    )
+    assert split.customer_pays == 132
+    assert split.hotel_earning == 80
+    assert split.admin_earning == 32
+    assert split.packing_charge == 10
+
+
 def test_admin_view_cash_profit():
     a = admin_price_view(
         customer_total=117.72,

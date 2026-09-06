@@ -3,13 +3,14 @@
 Single source of truth for order money views.
 
 Customer view (what the buyer pays):
-  display_price + platform_fee + delivery_charge − discount = customer_total
+  display_price + platform_fee + delivery_charge + packing_charge − discount = customer_total
 
 Admin view (platform P/L after partner payouts):
   customer_total − hotel_payout − delivery_payout = admin_profit
 
-Delivery is a pass-through: customer pays it, delivery partner receives it.
-Do not subtract delivery again from the food display price when computing admin profit.
+Delivery and packing are pass-throughs: the customer pays them, and the
+matching partner receives them. Packing is added to hotel payout and does
+not change admin profit.
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ class CustomerPriceView:
     delivery_charge: float
     discount: float
     customer_total: float
+    packing_charge: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
         return asdict(self)
@@ -64,24 +66,38 @@ class OrderPriceBreakdown:
         }
 
 
+def packing_charge_for_restaurant(restaurant: Any) -> float:
+    """Checkout packing only when the restaurant toggle is on and amount > 0."""
+    if not bool(getattr(restaurant, "show_packing_charge", False)):
+        return 0.0
+    return _money(max(0.0, getattr(restaurant, "packing_charge", 0) or 0))
+
+
+def packing_charge_from_order(order: Any) -> float:
+    return _money(getattr(order, "packing_charge", 0) or 0)
+
+
 def customer_price_view(
     *,
     display_price: float,
     platform_fee: float,
     delivery_charge: float,
     discount: float = 0,
+    packing_charge: float = 0,
 ) -> CustomerPriceView:
     display = _money(display_price)
     platform = _money(platform_fee)
     delivery = _money(delivery_charge)
+    packing = _money(packing_charge)
     disc = _money(discount)
-    total = _money(max(0.0, display + platform + delivery - disc))
+    total = _money(max(0.0, display + platform + delivery + packing - disc))
     return CustomerPriceView(
         display_price=display,
         platform_fee=platform,
         delivery_charge=delivery,
         discount=disc,
         customer_total=total,
+        packing_charge=packing,
     )
 
 
@@ -111,26 +127,33 @@ def build_order_price_breakdown(
     delivery_charge: float,
     discount: float = 0,
     delivery_payout: float | None = None,
+    packing_charge: float = 0,
 ) -> OrderPriceBreakdown:
     """
     Canonical breakdown used by place-order, PayU, admin UI, and promo recalc.
 
+    hotel_payout is the food transfer price. Packing is added on top for the
+    hotel and the customer; menu_margin stays display − food transfer.
+
     delivery_payout defaults to delivery_charge (zone fee paid to rider).
     """
+    packing = _money(packing_charge)
+    food_transfer = _money(hotel_payout)
     customer = customer_price_view(
         display_price=display_price,
         platform_fee=platform_fee,
         delivery_charge=delivery_charge,
         discount=discount,
+        packing_charge=packing,
     )
     payout = delivery_charge if delivery_payout is None else delivery_payout
+    hotel = _money(food_transfer + packing)
     base = admin_price_view(
         customer_total=customer.customer_total,
-        hotel_payout=hotel_payout,
+        hotel_payout=hotel,
         delivery_payout=payout,
     )
     platform = _money(platform_fee)
-    hotel = _money(hotel_payout)
     display = _money(display_price)
     promo = _money(discount)
     admin = AdminPriceView(
@@ -139,7 +162,7 @@ def build_order_price_breakdown(
         admin_profit=base.admin_profit,
         is_loss=base.is_loss,
         platform_charge=platform,
-        menu_margin=_money(display - hotel),
+        menu_margin=_money(display - food_transfer),
         promo_cost=promo,
     )
     return OrderPriceBreakdown(customer=customer, admin=admin)
@@ -166,6 +189,7 @@ def breakdown_from_order(
         platform = getattr(order, "platform_fee", 0) or 0
     delivery = getattr(order, "delivery_fee", 0) or 0
     discount = getattr(order, "discount", 0) or 0
+    packing = packing_charge_from_order(order)
     delivery_payout = getattr(order, "delivery_partner_earning", None)
     if delivery_payout is None:
         delivery_payout = delivery
@@ -176,6 +200,7 @@ def breakdown_from_order(
         delivery_charge=float(delivery),
         discount=float(discount),
         delivery_payout=float(delivery_payout),
+        packing_charge=packing,
     )
 
 

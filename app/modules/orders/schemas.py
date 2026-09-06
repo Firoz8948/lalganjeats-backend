@@ -33,6 +33,7 @@ class PlaceOrderResponse(BaseModel):
     delivery_fee: float
     discount: float
     platform_charge: float = 0
+    packing_charge: float = 0
     distance_km: Optional[float] = None
     eta_minutes: Optional[int] = None
     needs_payment: bool = False
