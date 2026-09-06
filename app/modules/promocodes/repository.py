@@ -5,7 +5,9 @@ from app.modules.orders.models import Order
 
 
 def get_by_id(db: Session, promo_id: int, tenant_id: int | None) -> PromoCode | None:
-    q = db.query(PromoCode).filter(PromoCode.id == promo_id)
+    q = db.query(PromoCode).options(joinedload(PromoCode.restaurant)).filter(
+        PromoCode.id == promo_id
+    )
     if tenant_id is not None:
         q = q.filter(PromoCode.tenant_id == tenant_id)
     return q.first()
@@ -21,7 +23,7 @@ def get_by_code(
 
 
 def list_promos(db: Session, tenant_id: int | None) -> list[PromoCode]:
-    q = db.query(PromoCode)
+    q = db.query(PromoCode).options(joinedload(PromoCode.restaurant))
     if tenant_id is not None:
         q = q.filter(PromoCode.tenant_id == tenant_id)
     return q.order_by(PromoCode.created_at.desc()).all()

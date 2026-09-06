@@ -24,6 +24,7 @@ class PromoCreateRequest(BaseModel):
     max_uses: int = Field(..., ge=0)  # 0 = unlimited
     description: Optional[str] = Field(None, max_length=255)
     is_public: bool = False
+    restaurant_id: Optional[int] = None
 
     @field_validator("code")
     @classmethod
@@ -63,6 +64,7 @@ class PromoUpdateRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=255)
     is_active: Optional[bool] = None
     is_public: Optional[bool] = None
+    restaurant_id: Optional[int] = None
 
 
 class PromoOut(BaseModel):
@@ -83,6 +85,8 @@ class PromoOut(BaseModel):
     is_public: bool = False
     is_expired: bool = False
     description: Optional[str]
+    restaurant_id: Optional[int] = None
+    restaurant_name: Optional[str] = None
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
@@ -106,6 +110,7 @@ class PromoValidateRequest(BaseModel):
     subtotal: Optional[Decimal] = Field(None, ge=0)
     delivery_fee: Optional[Decimal] = Field(None, ge=0)
     device_id: Optional[str] = Field(None, max_length=64)
+    restaurant_id: Optional[int] = None
 
     @field_validator("code")
     @classmethod

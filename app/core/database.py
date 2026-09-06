@@ -98,6 +98,8 @@ def run_auto_migrations():
 
         # Promo audience (all vs new users) + usage tracked by mobile number.
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS audience VARCHAR(20) DEFAULT 'all';",
+        "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS restaurant_id INTEGER;",
+        "CREATE INDEX IF NOT EXISTS ix_promo_codes_restaurant_id ON promo_codes(restaurant_id);",
         "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(15);",
         "CREATE INDEX IF NOT EXISTS ix_promo_code_usages_customer_phone ON promo_code_usages(customer_phone);",
         "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS device_id VARCHAR(64);",

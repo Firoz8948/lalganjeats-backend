@@ -22,6 +22,42 @@ MOBILE_CHANNELS = {"android_app", "ios_app"}
 MSG_ONE_TIME = "APPLICABLE FOR ONE TIME ONLY"
 MSG_NEW_USERS = "APPLICABLE FOR NEW USERS"
 MSG_DEVICE_USED = "This mobile has already used this coupon code"
+MSG_RESTAURANT = "Code not applicable for this restaurant"
+
+
+def _promo_restaurant_id(promo: PromoCode) -> int | None:
+    raw = getattr(promo, "restaurant_id", None)
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _restaurant_mismatch(promo: PromoCode, restaurant_id: int | None) -> bool:
+    scoped = _promo_restaurant_id(promo)
+    if scoped is None:
+        return False
+    try:
+        current = int(restaurant_id) if restaurant_id is not None else None
+    except (TypeError, ValueError):
+        current = None
+    return current != scoped
+
+
+def _resolve_restaurant_id(
+    db: Session, tenant_id: int | None, restaurant_id: int | None
+) -> int | None:
+    if restaurant_id is None:
+        return None
+    from app.modules.restaurants.models import Restaurant
+
+    q = db.query(Restaurant).filter(Restaurant.id == restaurant_id)
+    if tenant_id is not None:
+        q = q.filter(Restaurant.tenant_id == tenant_id)
+    restaurant = q.first()
+    if not restaurant:
+        raise HTTPException(400, detail="Restaurant not found")
+    return restaurant.id
 
 
 def _now() -> datetime:
@@ -214,6 +250,12 @@ def _to_out(promo: PromoCode) -> PromoOut:
         is_public=bool(getattr(promo, "is_public", False)),
         is_expired=_is_expired(promo),
         description=promo.description,
+        restaurant_id=_promo_restaurant_id(promo),
+        restaurant_name=(
+            promo.restaurant.name
+            if getattr(promo, "restaurant", None) is not None
+            else None
+        ),
         created_at=promo.created_at,
     )
 
@@ -232,11 +274,14 @@ def list_public_active_promos(
     tenant_id: int | None = None,
     current_user: User | None = None,
     device_id: str | None = None,
+    restaurant_id: int | None = None,
 ) -> list[dict]:
     rows = []
     for promo in repo.list_public_active(db, tenant_id):
         _maybe_auto_deactivate(db, promo)
         if _is_expired(promo) or not promo.is_active:
+            continue
+        if _restaurant_mismatch(promo, restaurant_id):
             continue
         if _eligibility_error(db, promo, current_user, device_id=device_id):
             continue
@@ -284,11 +329,12 @@ def create_promo(
         is_active=True,
         is_public=bool(payload.is_public),
         description=payload.description,
+        restaurant_id=_resolve_restaurant_id(db, tenant_id, payload.restaurant_id),
     )
     repo.create(db, promo)
     db.commit()
-    db.refresh(promo)
-    return _to_out(promo)
+    created = repo.get_by_id(db, promo.id, tenant_id) or promo
+    return _to_out(created)
 
 
 def update_promo(
@@ -324,13 +370,18 @@ def update_promo(
                 promo.is_active = False
         del data["max_uses"]
 
+    if "restaurant_id" in data:
+        data["restaurant_id"] = _resolve_restaurant_id(
+            db, tenant_id, data["restaurant_id"]
+        )
+
     for key, value in data.items():
         setattr(promo, key, value)
 
     _maybe_auto_deactivate(db, promo)
     db.commit()
-    db.refresh(promo)
-    return _to_out(promo)
+    updated = repo.get_by_id(db, promo.id, tenant_id) or promo
+    return _to_out(updated)
 
 
 def delete_promo(db: Session, tenant_id: int | None, promo_id: int) -> dict:
@@ -399,6 +450,15 @@ def validate_promo(
             reason="inactive",
             message="This promocode is no longer active",
             code=promo.code,
+        )
+
+    if _restaurant_mismatch(promo, getattr(payload, "restaurant_id", None)):
+        return PromoValidateResponse(
+            valid=False,
+            reason="restaurant",
+            message=MSG_RESTAURANT,
+            code=promo.code,
+            channel=promo.channel,
         )
 
     blocked = _eligibility_error(
@@ -472,6 +532,7 @@ def apply_promo_to_order(
         subtotal=order.subtotal,
         delivery_fee=order.delivery_fee,
         device_id=device_id,
+        restaurant_id=order.restaurant_id,
     )
     customer = order.customer
     if customer is None and order.customer_id:

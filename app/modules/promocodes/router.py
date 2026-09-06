@@ -59,6 +59,7 @@ def validate_promocode(
 
 @public_router.get("/active", response_model=list[schemas.PublicPromoOut])
 def active_public_promos(
+    restaurant_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current: User | None = Depends(_optional_user),
     x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
@@ -70,6 +71,7 @@ def active_public_promos(
         tenant_id=tenant_id,
         current_user=current,
         device_id=x_device_id,
+        restaurant_id=restaurant_id,
     )
 
 
