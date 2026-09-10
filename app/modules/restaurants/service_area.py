@@ -71,17 +71,13 @@ def max_active_zone_radius_km(zones: Iterable) -> float | None:
     return max(ends) if ends else None
 
 
-def delivery_charge_for_distance(
+def delivery_rates_for_distance(
     zones: Iterable,
     distance_km: float,
-) -> float | None:
+) -> tuple[float, float, object] | None:
     """
-    Price delivery using the active zone whose range contains the distance.
-
-    Ranges are half-open: initial km is included, final km is excluded.
-    Example: 3–5 km covers 3.0, 3.1 and 4.9, but not 5.0.
-    Flat zones charge their configured rate; per-km zones multiply their rate
-    by the actual distance.
+    Price delivery and rider payout using the active zone whose range contains the distance.
+    Returns (customer_delivery_charge, delivery_partner_payout, zone) or None if outside all active zones.
     """
     distance = float(distance_km)
     matches = [
@@ -93,10 +89,34 @@ def delivery_charge_for_distance(
         return None
 
     zone = sorted(matches, key=lambda row: (row[0], row[1]))[0][2]
-    rate = float(getattr(zone, "rate", 0) or 0)
+    cust_rate = float(getattr(zone, "rate", 0) or 0)
+    dp_rate_val = getattr(zone, "delivery_partner_rate", None)
+    dp_rate = float(dp_rate_val) if dp_rate_val is not None else cust_rate
+
     if getattr(zone, "pricing_type", "flat") == "per_km":
-        return round(rate * distance, 2)
-    return round(rate, 2)
+        cust_charge = round(cust_rate * distance, 2)
+        dp_payout = round(dp_rate * distance, 2)
+    else:
+        cust_charge = round(cust_rate, 2)
+        dp_payout = round(dp_rate, 2)
+
+    return cust_charge, dp_payout, zone
+
+
+def delivery_charge_for_distance(
+    zones: Iterable,
+    distance_km: float,
+) -> float | None:
+    res = delivery_rates_for_distance(zones, distance_km)
+    return res[0] if res else None
+
+
+def delivery_payout_for_distance(
+    zones: Iterable,
+    distance_km: float,
+) -> float | None:
+    res = delivery_rates_for_distance(zones, distance_km)
+    return res[1] if res else None
 
 
 def customer_within_service_area(

@@ -49,6 +49,7 @@ class AdminPriceView:
     platform_charge: float = 0.0
     menu_margin: float = 0.0
     promo_cost: float = 0.0
+    delivery_margin: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -156,6 +157,7 @@ def build_order_price_breakdown(
     platform = _money(platform_fee)
     display = _money(display_price)
     promo = _money(discount)
+    margin = _money(delivery_charge - payout)
     admin = AdminPriceView(
         hotel_payout=base.hotel_payout,
         delivery_payout=base.delivery_payout,
@@ -164,6 +166,7 @@ def build_order_price_breakdown(
         platform_charge=platform,
         menu_margin=_money(display - food_transfer),
         promo_cost=promo,
+        delivery_margin=margin,
     )
     return OrderPriceBreakdown(customer=customer, admin=admin)
 

@@ -3,7 +3,7 @@ import re
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
-from app.core.maps import haversine_km
+from app.core.maps import haversine_km, distance_and_drive_minutes
 from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
@@ -94,11 +94,11 @@ def _to_public(
                 if lng is not None
                 else float(tenant.center_longitude)
             )
-            zone_distance = haversine_km(
-                customer_lat,
-                customer_lng,
+            zone_distance, _ = distance_and_drive_minutes(
                 zone_origin_lat,
                 zone_origin_lng,
+                customer_lat,
+                customer_lng,
             )
             delivery_charge = delivery_charge_for_distance(
                 tenant.zones or [],
@@ -138,7 +138,7 @@ def _restaurant_visible_for_customer(
     customer_lat: float | None,
     customer_lng: float | None,
 ) -> bool:
-    """Visibility is based on customer distance matching an active zone range."""
+    """Visibility is based on customer road distance matching an active zone range."""
     if customer_lat is None or customer_lng is None:
         return False
     tenant = getattr(restaurant, "tenant", None)
@@ -150,13 +150,19 @@ def _restaurant_visible_for_customer(
         customer_lng,
     ) is not None:
         return True
-    if tenant.center_latitude is None or tenant.center_longitude is None:
+    r_lat = float(restaurant.latitude) if restaurant.latitude is not None else (
+        float(tenant.center_latitude) if tenant.center_latitude is not None else None
+    )
+    r_lng = float(restaurant.longitude) if restaurant.longitude is not None else (
+        float(tenant.center_longitude) if tenant.center_longitude is not None else None
+    )
+    if r_lat is None or r_lng is None:
         return False
-    distance = haversine_km(
+    distance, _ = distance_and_drive_minutes(
+        r_lat,
+        r_lng,
         float(customer_lat),
         float(customer_lng),
-        float(tenant.center_latitude),
-        float(tenant.center_longitude),
     )
     return delivery_charge_for_distance(tenant.zones or [], distance) is not None
 

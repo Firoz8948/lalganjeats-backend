@@ -206,6 +206,7 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
         "admin_profit": admin.admin_profit,
         "is_loss": admin.is_loss,
         "menu_margin": admin.menu_margin,
+        "delivery_margin": getattr(admin, "delivery_margin", 0.0),
         "promo_cost": admin.promo_cost,
         "promo_code": order.promo_code,
         "customer_view": customer.as_dict(),

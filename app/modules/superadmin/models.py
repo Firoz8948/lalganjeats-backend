@@ -81,7 +81,8 @@ class DeliveryZone(Base):
     initial_km    = Column(Numeric(8, 2), nullable=False, default=0)
     final_km      = Column(Numeric(8, 2), nullable=False)
     pricing_type  = Column(String(20), nullable=False)        # flat | per_km
-    rate          = Column(Numeric(10, 2), nullable=False)    # Rs flat or Rs/km
+    rate          = Column(Numeric(10, 2), nullable=False)    # Rs flat or Rs/km (customer charge)
+    delivery_partner_rate = Column(Numeric(10, 2), nullable=True) # Rs flat or Rs/km paid to rider
     sort_order    = Column(Integer, default=0)
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())

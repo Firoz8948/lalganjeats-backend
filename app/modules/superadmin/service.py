@@ -321,6 +321,7 @@ def create_zone(
         radius_km=payload.final_km,
         pricing_type=payload.pricing_type,
         rate=payload.rate,
+        delivery_partner_rate=payload.delivery_partner_rate if payload.delivery_partner_rate is not None else payload.rate,
         sort_order=payload.sort_order,
         is_active=True,
     )

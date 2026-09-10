@@ -18,8 +18,10 @@ from app.modules.orders.schemas import PlaceOrderRequest
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuItemVariant
 from app.modules.restaurants.service import _restaurant_visible_for_customer
 from app.modules.restaurants.service_area import (
+    delivery_rates_for_distance,
     delivery_charge_for_distance,
     matching_delivery_exception,
+    max_active_zone_radius_km,
 )
 from app.modules.users.models import Address, User
 from app.modules.payments.service import ensure_payment_settings
@@ -216,6 +218,18 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     actual_total = round(actual_total, 2)
 
     tenant = restaurant.tenant
+    r_lat = float(restaurant.latitude) if restaurant.latitude is not None else (
+        float(tenant.center_latitude) if tenant.center_latitude is not None else None
+    )
+    r_lng = float(restaurant.longitude) if restaurant.longitude is not None else (
+        float(tenant.center_longitude) if tenant.center_longitude is not None else None
+    )
+
+    distance_km = None
+    eta_minutes = None
+    if r_lat is not None and r_lng is not None and lat is not None and lng is not None:
+        distance_km, eta_minutes = estimate_customer_eta_minutes(r_lat, r_lng, lat, lng)
+
     exception = matching_delivery_exception(
         tenant.delivery_exceptions or [],
         float(lat),
@@ -223,32 +237,22 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     )
     if exception is not None:
         zone_delivery_charge = float(exception.delivery_charge)
+        dp_payout = float(exception.delivery_charge)
     else:
-        zone_origin_lat = (
-            float(restaurant.latitude)
-            if restaurant.latitude is not None
-            else float(tenant.center_latitude)
-        )
-        zone_origin_lng = (
-            float(restaurant.longitude)
-            if restaurant.longitude is not None
-            else float(tenant.center_longitude)
-        )
-        zone_distance_km = haversine_km(
-            float(lat),
-            float(lng),
-            zone_origin_lat,
-            zone_origin_lng,
-        )
-        zone_delivery_charge = delivery_charge_for_distance(
+        calc_dist = distance_km
+        if calc_dist is None and r_lat is not None and r_lng is not None and lat is not None and lng is not None:
+            calc_dist = haversine_km(float(lat), float(lng), r_lat, r_lng)
+        rates = delivery_rates_for_distance(
             tenant.zones or [],
-            zone_distance_km,
+            calc_dist if calc_dist is not None else 0.0,
         )
-    if zone_delivery_charge is None:
-        raise HTTPException(
-            400,
-            "No active delivery zone covers this location.",
-        )
+        if rates is None:
+            max_km = max_active_zone_radius_km(tenant.zones or []) or 10.0
+            raise HTTPException(
+                400,
+                f"Orders not available as your position is outside {max_km:g} km distance of Lalganj Ajhara. Contact on Insta @lalganjeats to unlock your location",
+            )
+        zone_delivery_charge, dp_payout, _ = rates
 
     pay_settings = ensure_payment_settings(db)
     packing_charge = packing_charge_for_restaurant(restaurant)
@@ -257,6 +261,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         actual_total,
         pay_settings,
         delivery_charge=zone_delivery_charge,
+        delivery_payout=dp_payout,
         packing_charge=packing_charge,
     )
 
@@ -268,13 +273,6 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
 
     customer_pays = round(max(0.0, split.customer_pays - discount), 2)
     validate_payment_method(payload.payment_method, customer_pays, pay_settings)
-
-    distance_km = None
-    eta_minutes = None
-    r_lat = float(restaurant.latitude) if restaurant.latitude is not None else None
-    r_lng = float(restaurant.longitude) if restaurant.longitude is not None else None
-    if r_lat is not None and r_lng is not None and lat is not None and lng is not None:
-        distance_km, eta_minutes = estimate_customer_eta_minutes(r_lat, r_lng, lat, lng)
 
     payment_status = "pending"
     if payload.payment_method == "online":

@@ -27,10 +27,12 @@ def calculate_split(
     delivery_charge: float,
     discount: float = 0,
     packing_charge: float = 0,
+    delivery_payout: float | None = None,
 ) -> SplitResult:
     # Delivery is priced by the tenant's matching distance zone before the
     # split is calculated. Payment settings no longer define a fixed fee.
     delivery_charge = round(float(delivery_charge), 2)
+    payout = delivery_charge if delivery_payout is None else round(float(delivery_payout), 2)
     packing_charge = round(float(packing_charge or 0), 2)
     platform_charge = round(
         float(getattr(settings, "platform_charge_rupees", 0) or 0),
@@ -43,7 +45,7 @@ def calculate_split(
         platform_fee=platform_charge,
         delivery_charge=delivery_charge,
         discount=discount,
-        delivery_payout=delivery_charge,
+        delivery_payout=payout,
         packing_charge=packing_charge,
     )
     c = breakdown.customer

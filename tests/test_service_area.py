@@ -1,6 +1,7 @@
 from app.modules.restaurants.service_area import (
     customer_within_service_area,
     delivery_charge_for_distance,
+    delivery_rates_for_distance,
     matching_delivery_exception,
     max_active_zone_radius_km,
 )
@@ -16,6 +17,7 @@ class _Zone:
         pricing_type="flat",
         initial_km=None,
         final_km=None,
+        delivery_partner_rate=None,
     ):
         self.radius_km = radius_km
         self.initial_km = initial_km
@@ -23,6 +25,7 @@ class _Zone:
         self.is_active = is_active
         self.rate = rate
         self.pricing_type = pricing_type
+        self.delivery_partner_rate = delivery_partner_rate
 
 
 class _Exception:
@@ -178,3 +181,27 @@ def test_exception_makes_every_restaurant_in_its_tenant_visible():
         customer_lat=26.1620,
         customer_lng=80.9000,
     ) is True
+
+
+def test_delivery_rates_for_distance_with_partner_rate():
+    zones = [
+        _Zone(initial_km=0, final_km=2, rate=17, delivery_partner_rate=15, pricing_type="flat"),
+        _Zone(initial_km=2, final_km=6, rate=9, delivery_partner_rate=8.5, pricing_type="per_km"),
+    ]
+    # Inside flat zone
+    res1 = delivery_rates_for_distance(zones, 1.5)
+    assert res1 is not None
+    cust_charge, dp_payout, _ = res1
+    assert cust_charge == 17.0
+    assert dp_payout == 15.0
+
+    # Inside per_km zone (e.g. 6 km -> 5.9 km or 4 km)
+    res2 = delivery_rates_for_distance(zones, 4.0)
+    assert res2 is not None
+    cust_charge2, dp_payout2, _ = res2
+    assert cust_charge2 == 36.0  # 4 * 9
+    assert dp_payout2 == 34.0    # 4 * 8.5
+
+    # Outside all zones
+    assert delivery_rates_for_distance(zones, 6.0) is None
+

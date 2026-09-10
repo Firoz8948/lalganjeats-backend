@@ -93,6 +93,7 @@ class ZoneOut(BaseModel):
     radius_km: Decimal
     pricing_type: str
     rate: Decimal
+    delivery_partner_rate: Optional[Decimal] = None
     sort_order: int
     is_active: bool
 
@@ -166,6 +167,7 @@ class ZoneCreateRequest(BaseModel):
     final_km: Decimal = Field(..., gt=0)
     pricing_type: PricingType
     rate: Decimal = Field(..., ge=0)
+    delivery_partner_rate: Optional[Decimal] = Field(None, ge=0)
     sort_order: int = 0
 
     @model_validator(mode="after")
@@ -183,6 +185,7 @@ class ZoneUpdateRequest(BaseModel):
     final_km: Optional[Decimal] = Field(None, gt=0)
     pricing_type: Optional[PricingType] = None
     rate: Optional[Decimal] = Field(None, ge=0)
+    delivery_partner_rate: Optional[Decimal] = Field(None, ge=0)
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
 

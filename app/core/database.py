@@ -134,6 +134,7 @@ def run_auto_migrations():
         # Delivery zones: half-open km ranges [initial including, final excluding).
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS initial_km NUMERIC(8,2);",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS final_km NUMERIC(8,2);",
+        "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS delivery_partner_rate NUMERIC(10,2);",
     ]
     for stmt in statements:
         try:

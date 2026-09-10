@@ -389,3 +389,23 @@ def test_display_payment_mode_labels():
 
 def test_new_manual_earning_is_unsettled():
     assert initial_earning_status() == "unsettled"
+
+
+def test_calculate_split_with_delivery_margin():
+    settings = _settings(platform_charge_rupees=2.0)
+    split = calculate_split(
+        display_total=100.0,
+        actual_price_total=80.0,
+        settings=settings,
+        delivery_charge=54.0,
+        delivery_payout=51.0,
+    )
+    assert split.delivery_charge == 54.0
+    assert split.delivery_earning == 51.0
+    assert split.hotel_earning == 80.0
+    # Customer pays: 100 display + 2 platform + 54 delivery = 156
+    assert split.customer_pays == 156.0
+    # Admin earning: customer (156) - hotel (80) - delivery_earning (51) = 25
+    # (Menu margin 20 + platform 2 + delivery margin 3 = 25)
+    assert split.admin_earning == 25.0
+
