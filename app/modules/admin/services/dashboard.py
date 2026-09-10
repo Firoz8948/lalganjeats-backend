@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.modules.admin.services.customers import count_tenant_customers
 from app.modules.orders.models import Order
 from app.modules.orders.status_meta import LIVE_ORDER_STATUSES
 from app.modules.orders.payment_state import fulfillment_sql_filter
@@ -46,6 +47,28 @@ def delivered_revenue_filters(tenant_id: int | None):
     return tuple(filters)
 
 
+def sequence_from_order_number(order_number: str | None) -> int:
+    if not order_number:
+        return 0
+    try:
+        return int(str(order_number).rsplit("-", 1)[-1])
+    except (TypeError, ValueError):
+        return 0
+
+
+def latest_order_sequence(db: Session, tenant_id: int | None = None) -> int:
+    """Highest LE-YYYY-xxxxx sequence this year, including failed and cancelled."""
+    year = datetime.now(timezone.utc).year
+    prefix = f"LE-{year}-"
+    q = db.query(Order).filter(Order.order_number.like(f"{prefix}%"))
+    if tenant_id is not None:
+        q = q.filter(or_(Order.tenant_id == tenant_id, Order.tenant_id.is_(None)))
+    last = q.order_by(Order.order_number.desc()).first()
+    return sequence_from_order_number(
+        getattr(last, "order_number", None) if last else None
+    )
+
+
 def _serialize_live_order(o: Order) -> dict:
     restaurant = o.restaurant
     partner = o.delivery_partner
@@ -76,17 +99,12 @@ def _serialize_live_order(o: Order) -> dict:
 
 def get_dashboard(db: Session, current: User):
     rest_q = db.query(Restaurant)
-    orders_q = db.query(Order)
     if current.tenant_id:
         rest_q = rest_q.filter(Restaurant.tenant_id == current.tenant_id)
-        orders_q = orders_q.filter(Order.tenant_id == current.tenant_id)
 
-    customer_q = db.query(func.count(func.distinct(Order.customer_id)))
-    if current.tenant_id:
-        customer_q = customer_q.filter(Order.tenant_id == current.tenant_id)
-    total_customers = int(customer_q.scalar() or 0)
+    total_customers = count_tenant_customers(db, current.tenant_id)
     total_restaurants = rest_q.count()
-    total_orders = orders_q.count()
+    total_orders = latest_order_sequence(db, current.tenant_id)
     delivery_q = db.query(User).filter(User.role == "delivery_partner")
     if current.tenant_id:
         delivery_q = delivery_q.filter(User.tenant_id == current.tenant_id)

@@ -165,7 +165,7 @@ def _maybe_auto_deactivate(db: Session, promo: PromoCode) -> None:
 
 def _audience(promo: PromoCode) -> str:
     raw = (getattr(promo, "audience", None) or "all").strip().lower()
-    return raw if raw in ("all", "new_users") else "all"
+    return raw if raw in ("all", "new_users", "all_time") else "all"
 
 
 def _phone_digits(phone: str | None) -> str:
@@ -232,6 +232,10 @@ def _eligibility_error(
     device_id: str | None = None,
 ) -> PromoValidateResponse | None:
     """One-time per mobile/account, new-user gate, and one new-user code per device."""
+    aud = _audience(promo)
+    if aud == "all_time":
+        return None
+
     if user is not None and _has_used_promo(
         db, promo, user=user, exclude_order_id=exclude_order_id
     ):
@@ -242,7 +246,7 @@ def _eligibility_error(
             code=promo.code,
             channel=promo.channel,
         )
-    if _audience(promo) == "new_users":
+    if aud == "new_users":
         if _device_used_new_user_coupon(
             db, device_id, exclude_order_id=exclude_order_id
         ):

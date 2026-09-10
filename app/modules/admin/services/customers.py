@@ -2,10 +2,23 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from app.modules.orders.models import Order
 from app.modules.users.models import User
 
 PAGE_SIZE = 10
+
+
+def _customer_query(db: Session, tenant_id: int):
+    query = db.query(User).filter(User.role == "customer")
+    if tenant_id is not None:
+        query = query.filter(
+            or_(User.tenant_id == tenant_id, User.tenant_id.is_(None))
+        )
+    return query
+
+
+def count_tenant_customers(db: Session, tenant_id: int) -> int:
+    """Registered customer accounts on this city, including those with no orders."""
+    return int(_customer_query(db, tenant_id).count() or 0)
 
 
 def get_all_customers(
@@ -14,14 +27,7 @@ def get_all_customers(
     page: int = 1,
     q: str | None = None,
 ):
-    query = (
-        db.query(User)
-        .join(Order, Order.customer_id == User.id)
-        .filter(
-            User.role == "customer",
-            Order.tenant_id == tenant_id,
-        )
-    )
+    query = _customer_query(db, tenant_id)
     term = (q or "").strip()
     if term:
         like = f"%{term}%"
@@ -76,13 +82,8 @@ def set_customer_status(
     is_active: bool,
 ):
     customer = (
-        db.query(User)
-        .join(Order, Order.customer_id == User.id)
-        .filter(
-            User.id == customer_id,
-            User.role == "customer",
-            Order.tenant_id == tenant_id,
-        )
+        _customer_query(db, tenant_id)
+        .filter(User.id == customer_id)
         .first()
     )
     if not customer:

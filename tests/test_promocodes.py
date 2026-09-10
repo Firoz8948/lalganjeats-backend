@@ -360,3 +360,30 @@ def test_list_public_shows_only_for_ticked_restaurants(monkeypatch):
         restaurant_id=9,
     )
     assert [row["code"] for row in shown] == ["GROUP4", "SAVE10"]
+
+
+def test_validate_allows_repeat_use_for_all_time(monkeypatch):
+    from app.modules.promocodes import service as promo_service
+
+    promo = _promo(code="ALLTIME20", audience="all_time", percent_off=Decimal("20.00"))
+    monkeypatch.setattr(promo_service.repo, "get_by_code", _FakeRepo(promo).get_by_code)
+    monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
+    # Simulate repeat usage and existing user & device used
+    monkeypatch.setattr(promo_service, "_has_used_promo", lambda *a, **k: True)
+    monkeypatch.setattr(promo_service, "_is_new_customer", lambda *a, **k: False)
+    monkeypatch.setattr(promo_service, "_device_used_new_user_coupon", lambda *a, **k: True)
+
+    user = SimpleNamespace(id=54, phone="9876543210")
+    result = validate_promo(
+        db=SimpleNamespace(commit=lambda: None),
+        payload=PromoValidateRequest(
+            code="ALLTIME20",
+            client_channel="web",
+            subtotal=Decimal("200"),
+            device_id="device-used-before-123",
+        ),
+        current_user=user,
+    )
+    assert result.valid is True
+    assert result.discount_amount == Decimal("40.00")
+

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 """
-Create/update V3 South Indian Family Restaurants' menu.
+Replace V3 South Indian Family Restaurants' menu.
 
-The printed menu price is treated as the seller transfer price:
-    display price = transfer price + 30%
-    MRP           = transfer price + 39%
+Pricing:
+    display price = transfer price + ₹5
+    MRP           = display price + 5%
+
+Half / Full only on Veg Biryani and V3 Special Veg Biryani.
+All other items are a single price (no size picker).
 
 Run on EC2 inside the backend container:
     docker compose exec backend python -m scripts.seed_v3_menu
@@ -16,6 +19,7 @@ Preview without changing the database:
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import func
@@ -47,30 +51,20 @@ from app.modules.delivery_partner.models import DeliveryPartnerDetails  # noqa: 
 
 RESTAURANT_NAME = "V3 South Indian Family Restaurants"
 TENANT_SLUG = "lalganj"
-DISPLAY_MARKUP = Decimal("1.30")
-MRP_MARKUP = Decimal("1.39")
+DISPLAY_ADD = Decimal("5")
+MRP_ON_DISPLAY = Decimal("1.05")
 MONEY = Decimal("0.01")
-
-
 
 
 SUBCATEGORIES = {
     "breakfast": "Breakfast",
     "south-indian": "South Indian",
-    "starters": "Starters",
-    "noodles": "Noodles",
+    "chinese": "Chinese",
+    "snacks": "Snacks",
+    "samosa": "Samosa",
     "rice": "Rice",
-    "dal": "Dal",
-    "sabzi": "Sabzi",
-    "paneer-dishes": "Paneer Dishes",
-    "roti": "Roti",
-    "raita": "Raita",
-    "papad": "Papad",
-    "salad": "Salad",
-    "thali": "Thali",
-    "lassi": "Lassi",
-    "dessert": "Dessert",
 }
+
 
 @dataclass(frozen=True)
 class Variant:
@@ -117,142 +111,275 @@ def item_named(
     )
 
 
-
 ITEMS = [
     # Breakfast
-    item("Aloo Paratha", "Potato stuffed Indian flatbread", "50", "breakfast"),
-    item("Mix Paratha", "Mixed vegetable stuffed flatbread", "80", "breakfast"),
-    item("Gobhi Paratha", "Cauliflower stuffed Indian flatbread", "70", "breakfast"),
-    item("Paneer Paratha", "Paneer stuffed Indian flatbread", "90", "breakfast"),
-    item("Chhola Puri", "Spiced chickpeas with puris", "50", "breakfast"),
-    item("Chhola Bhatura", "Spicy chickpeas with fluffy bhatura", "70", "breakfast"),
-    item("Chhola Paratha", "Chickpea stuffed Indian flatbread", "50", "breakfast"),
-    item("Onion Paratha", "Onion stuffed Indian flatbread", "70", "breakfast"),
-    item("Pav Bhaji", "Spiced vegetables with buttery pav", "70", "breakfast"),
+    item(
+        "Aloo Paratha",
+        "Indian flatbread stuffed with spiced potato filling.",
+        "50",
+        "breakfast",
+    ),
+    item(
+        "Mix Paratha",
+        "Soft paratha filled with a flavorful mixed stuffing.",
+        "80",
+        "breakfast",
+    ),
+    item(
+        "Gobi Paratha",
+        "Crispy paratha stuffed with seasoned cauliflower.",
+        "70",
+        "breakfast",
+    ),
+    item(
+        "Paneer Paratha",
+        "Delicious paratha stuffed with seasoned paneer.",
+        "90",
+        "breakfast",
+    ),
+    item(
+        "Golgappa Puri",
+        "Crispy puris perfect for preparing delicious golgappas.",
+        "60",
+        "breakfast",
+    ),
+    item(
+        "Chola Bhatura",
+        "Fluffy bhatura served with flavorful spiced chickpeas.",
+        "80",
+        "breakfast",
+    ),
+    item(
+        "Chola Paratha",
+        "Indian paratha served with flavorful chola preparation.",
+        "60",
+        "breakfast",
+    ),
+    item(
+        "Omelette Paratha",
+        "Fluffy omelette paired with a freshly prepared paratha.",
+        "70",
+        "breakfast",
+    ),
+    item(
+        "V3 Special Chola Puri",
+        "Special V3-style chola puri prepared fresh.",
+        "30",
+        "breakfast",
+    ),
 
     # South Indian
-    item("Plain Dosa", "Crispy classic South Indian dosa", "80", "south-indian"),
-    item("Masala Dosa", "Crispy dosa with potato filling", "110", "south-indian"),
-    item("Paneer Dosa", "Crispy dosa with paneer filling", "130", "south-indian"),
-    item("Onion Dosa", "Crispy dosa topped with onion", "110", "south-indian"),
-    item("Idli Sambhar", "Soft idli with flavorful sambhar", "50", "south-indian"),
-    item("Masala Idli Sambhar", "Spiced idli with flavorful sambhar", "60", "south-indian"),
-    item("Vada Sambhar", "Crispy lentil vada with sambhar", "50", "south-indian"),
-    item("Idli Vada Combo Sambhar", "Idli vada served with sambhar", "40", "south-indian"),
-    item("Onion Uttapam", "Soft uttapam topped with onion", "90", "south-indian"),
-    item("Dal Vada", "Crispy lentil fritters", "50", "south-indian"),
-    item("V3 Special Paneer Masala Dosa", "Special dosa with paneer masala", "150", "south-indian"),
-    item("V3 Special Dahi Vada", "Special vada with creamy curd", "60", "south-indian"),
-    item("V3 Special Kela Paratha", "Special banana stuffed paratha", "30", "south-indian"),
+    item(
+        "Plain Dosa",
+        "Crispy golden dosa served with classic South Indian accompaniments.",
+        "90",
+        "south-indian",
+    ),
+    item(
+        "Masala Dosa",
+        "Crispy dosa filled with delicious spiced potato masala.",
+        "120",
+        "south-indian",
+    ),
+    item(
+        "Paneer Dosa",
+        "Crispy dosa filled with flavorful seasoned paneer.",
+        "140",
+        "south-indian",
+    ),
+    item(
+        "Onion Dosa",
+        "Crispy dosa topped with flavorful onions.",
+        "120",
+        "south-indian",
+    ),
+    item(
+        "Masala Idli Dosa (3 pcs)",
+        "Soft idli served with a flavorful masala preparation.",
+        "60",
+        "south-indian",
+    ),
+    item(
+        "Dahi Vada",
+        "Soft lentil vadas topped with creamy seasoned yogurt.",
+        "90",
+        "south-indian",
+    ),
+    item(
+        "Medu Vada (3 pcs)",
+        "Crispy golden South Indian lentil fritters with a soft center.",
+        "60",
+        "south-indian",
+    ),
+    item(
+        "V3 Special Paneer Masala Dosa",
+        "Special dosa loaded with paneer and flavorful masala.",
+        "170",
+        "south-indian",
+    ),
+    item(
+        "V3 Special Dahi Vada (2 pcs)",
+        "Special soft vadas served with creamy seasoned yogurt.",
+        "60",
+        "south-indian",
+    ),
 
-    # Starters
-    item("Finger Chips", "Crispy golden potato fries", "40", "starters"),
-    item("Aloo Chips", "Crispy seasoned potato chips", "50", "starters"),
-    item("Plain Maggi", "Classic masala instant noodles", "40", "starters"),
-    item("Masala Maggi", "Spicy masala instant noodles", "60", "starters"),
-    item("Mirchi Pakoda", "Crispy spiced chilli fritters", "10", "starters"),
-    item_named("Onion Pakoda", "Crispy spiced onion fritters", "starters",
-               ("Half", "40"), ("Full", "90")),
-    item("Paneer Pakoda", "Crispy paneer fritters", "90", "starters"),
-    item("Bread Pakoda", "Crispy stuffed bread fritter", "40", "starters"),
-    item("V3 Special Maggi", "Loaded signature masala Maggi", "80", "starters"),
+    # Chinese
+    item(
+        "Veg Manchurian Dry",
+        "Crispy vegetable balls tossed in flavorful Indo-Chinese sauces.",
+        "110",
+        "chinese",
+    ),
+    item(
+        "Paneer 65",
+        "Crispy paneer tossed with spicy and aromatic 65-style seasoning.",
+        "170",
+        "chinese",
+    ),
+    item(
+        "Chilli Paneer",
+        "Paneer tossed with chillies, onions and flavorful Chinese sauces.",
+        "130",
+        "chinese",
+    ),
+    item(
+        "Veg Manchurian Gravy",
+        "Vegetable Manchurian served in a rich, flavorful gravy.",
+        "120",
+        "chinese",
+    ),
 
-    # Noodles
-    item("Veg Noodles", "Stir fried vegetable noodles", "110", "noodles"),
-    item("Paneer Noodles", "Stir fried paneer noodles", "130", "noodles"),
-    item("V3 Special Noodles", "Signature loaded stir fried noodles", "150", "noodles"),
+    # Snacks
+    item(
+        "Finger Chips",
+        "Crispy golden French fries seasoned for a delicious taste.",
+        "50",
+        "snacks",
+    ),
+    item(
+        "Paneer Maggi",
+        "Hot Maggi noodles cooked with delicious pieces of paneer.",
+        "50",
+        "snacks",
+    ),
+    item(
+        "Masala Maggi",
+        "Spicy and flavorful Maggi noodles cooked with special masala.",
+        "70",
+        "snacks",
+    ),
+    item(
+        "Pyaz Pakodi",
+        "Crispy onion fritters coated in seasoned gram flour.",
+        "40",
+        "snacks",
+    ),
+    item(
+        "Paneer Pakoda (6 pcs)",
+        "Crispy gram-flour coated paneer fritters.",
+        "90",
+        "snacks",
+    ),
+    item(
+        "Bread Pakoda (2 pcs)",
+        "Crispy bread fritters with a flavorful spiced filling.",
+        "50",
+        "snacks",
+    ),
+    item(
+        "V3 Special Maggi",
+        "Special V3-style Maggi prepared with a flavorful twist.",
+        "80",
+        "snacks",
+    ),
 
-    # Rice
-    item_named("Steam Rice", "Steamed fluffy white rice", "rice",
-               ("Half", "40"), ("Full", "70")),
-    item_named("Jeera Rice", "Fragrant cumin flavored rice", "rice",
-               ("Half", "70"), ("Full", "110")),
-    item_named("Veg Pulao", "Aromatic rice with mixed vegetables", "rice",
-               ("Half", "80"), ("Full", "130")),
-    item_named("Veg Biryani", "Fragrant biryani with vegetables", "rice",
-               ("Half", "90"), ("Full", "150")),
-    item_named("V3 Special Veg Biryani", "Special loaded vegetable biryani", "rice",
-               ("Half", "110"), ("Full", "170")),
+    # Samosa
+    item(
+        "Aloo Samosa",
+        "Crispy pastry filled with delicious spiced potato.",
+        "50",
+        "samosa",
+    ),
+    item(
+        "Onion Samosa",
+        "Crispy samosa filled with flavorful seasoned onion.",
+        "50",
+        "samosa",
+    ),
+    item(
+        "Corn Samosa",
+        "Crispy samosa filled with a delicious sweet-corn mixture.",
+        "60",
+        "samosa",
+    ),
 
-    # Dal
-    item_named("Dal Fry", "Tempered yellow lentil preparation", "dal",
-               ("Half", "60"), ("Full", "110")),
-    item_named("Dal Tadka", "Lentils with aromatic tempering", "dal",
-               ("Half", "70"), ("Full", "120")),
-    item_named("Jeera Dal", "Lentils with cumin tempering", "dal",
-               ("Half", "70"), ("Full", "120")),
-    item_named("Dal Fry Butter", "Creamy buttery lentil preparation", "dal",
-               ("Half", "80"), ("Full", "130")),
-
-    # Sabzi
-    item_named("Mix Veg", "Mixed vegetables in flavorful gravy", "sabzi",
-               ("Half", "70"), ("Full", "120")),
-    item_named("Aloo Matar", "Potatoes cooked with green peas", "sabzi",
-               ("Half", "80"), ("Full", "130")),
-    item_named("Aloo Gobhi", "Potatoes with cauliflower curry", "sabzi",
-               ("Half", "80"), ("Full", "130")),
-    item_named("Aloo Jeera", "Potatoes tempered with cumin", "sabzi",
-               ("Half", "60"), ("Full", "110")),
-
-    # Paneer Dishes
-    item_named("Kadhai Paneer", "Spiced paneer in kadhai gravy", "paneer-dishes",
-               ("Half", "140"), ("Full", "210")),
-    item_named("Paneer Butter Masala", "Creamy paneer butter curry", "paneer-dishes",
-               ("Half", "150"), ("Full", "230")),
-    item_named("Palak Paneer", "Paneer cooked in spinach gravy", "paneer-dishes",
-               ("Half", "140"), ("Full", "210")),
-    item_named("Matar Paneer", "Paneer cooked with green peas", "paneer-dishes",
-               ("Half", "130"), ("Full", "190")),
-    item_named("Shahi Paneer", "Rich creamy royal paneer curry", "paneer-dishes",
-               ("Half", "150"), ("Full", "230")),
-    item("Kaju Korma", "Rich creamy cashew curry", "260", "paneer-dishes"),
-    item("Paneer Bhurji", "Spiced scrambled paneer preparation", "240", "paneer-dishes"),
-    item("V3 Special Paneer", "Signature special paneer curry", "300", "paneer-dishes"),
-
-    # Roti
-    item("Tawa Roti", "Soft freshly cooked tawa roti", "8", "roti"),
-    item("Tawa Butter Roti", "Soft roti topped with butter", "12", "roti"),
-    item("Desi Ghee Tawa Roti", "Tawa roti with desi ghee", "15", "roti"),
-    item("Tandoori Roti", "Crispy tandoor baked Indian bread", "10", "roti"),
-    item("Tandoori Butter Roti", "Buttery tandoor baked Indian bread", "15", "roti"),
-    item("Tandoori Ghee Roti", "Tandoori roti with desi ghee", "20", "roti"),
-
-    # Raita
-    item("Plain Dahi", "Fresh creamy plain curd", "25", "raita"),
-    item("Plain Raita", "Creamy seasoned yogurt raita", "30", "raita"),
-    item("Mix Veg Raita", "Creamy raita with mixed vegetables", "60", "raita"),
-    item("Cucumber Raita", "Refreshing raita with cucumber", "50", "raita"),
-    item("Boondi Raita", "Creamy raita with boondi", "50", "raita"),
-
-    # Papad
-    item("Dry Papad", "Crispy roasted Indian papad", "25", "papad"),
-    item("Fry Papad", "Crispy fried Indian papad", "25", "papad"),
-    item("Masala Papad", "Crispy papad with masala", "30", "papad"),
-
-    # Salad
-    item("Onion Salad", "Fresh sliced onion salad", "30", "salad"),
-    item("Green Salad", "Fresh assorted green salad", "40", "salad"),
-    item("Cucumber Salad", "Fresh sliced cucumber salad", "50", "salad"),
-    item("Tomato Salad", "Fresh sliced tomato salad", "30", "salad"),
-    item("Kheera Salad", "Fresh cucumber salad", "30", "salad"),
-
-    # Thali
-    item("Plain Thali", "Dal rice vegetables roti", "140", "thali"),
-    item("Rajasthani Special Thali", "Traditional Rajasthani meal platter", "200", "thali"),
-    item("V3 Special Thali", "Signature complete Indian meal", "230", "thali"),
-
-    # Lassi (kept because user asked to remove chai/coffee/water/lemon-water/tea,
-    # but did not ask to remove lassi)
-    item("Namkeen Lassi", "Refreshing salted yogurt drink", "50", "lassi"),
-    item("Meethi Lassi", "Sweet creamy yogurt drink", "60", "lassi"),
-
-    # Dessert
-    item("V3 Special Kheer", "Creamy traditional rice pudding", "70", "dessert"),
+    # Rice — only these two have Half / Full
+    item(
+        "Veg Fried Rice",
+        "Stir-fried rice tossed with fresh vegetables and sauces.",
+        "120",
+        "rice",
+    ),
+    item(
+        "Paneer Fried Rice",
+        "Flavorful fried rice loaded with paneer and vegetables.",
+        "140",
+        "rice",
+    ),
+    item(
+        "Veg Manchurian Fried Rice",
+        "Fried rice combined with delicious vegetable Manchurian.",
+        "150",
+        "rice",
+    ),
+    item(
+        "Chola Rice",
+        "Flavorful rice preparation served with spiced chola.",
+        "120",
+        "rice",
+    ),
+    item(
+        "V3 Special Lemon Rice",
+        "Aromatic rice infused with fresh, tangy lemon flavor.",
+        "170",
+        "rice",
+    ),
+    item_named(
+        "Veg Biryani",
+        "Fragrant basmati rice cooked with vegetables and aromatic spices.",
+        "rice",
+        ("Half", "110"),
+        ("Full", "170"),
+    ),
+    item_named(
+        "V3 Special Veg Biryani",
+        "Special vegetable biryani prepared with rich aromatic spices.",
+        "rice",
+        ("Half", "170"),
+        ("Full", "210"),
+    ),
 ]
 
 
 def money(value: Decimal) -> Decimal:
     return value.quantize(MONEY, rounding=ROUND_HALF_UP)
+
+
+def prices_from_transfer(transfer: Decimal) -> tuple[Decimal, Decimal, Decimal]:
+    transfer = money(transfer)
+    display = money(transfer + DISPLAY_ADD)
+    mrp = money(display * MRP_ON_DISPLAY)
+    return transfer, display, mrp
+
+
+def persist_size_variants(row: MenuRow) -> bool:
+    """Half/Full (or any named sizes). A lone Regular is item-level only."""
+    if len(row.variants) > 1:
+        return True
+    if len(row.variants) == 1 and row.variants[0].label.casefold() != "regular":
+        return True
+    return False
 
 
 def normalize_name(value: str) -> str:
@@ -424,14 +551,13 @@ def upsert_item(
     action = "updated" if matches else "created"
 
     first = row.variants[0]
-    display_price = money(first.transfer_price * DISPLAY_MARKUP)
-    mrp = money(first.transfer_price * MRP_MARKUP)
+    transfer, display_price, mrp = prices_from_transfer(first.transfer_price)
 
     menu_item.category_id = category.id
     menu_item.business_subcategory_id = subcategory.id
     menu_item.name = row.name
     menu_item.description = row.description
-    menu_item.actual_price = money(first.transfer_price)
+    menu_item.actual_price = transfer
     menu_item.price = display_price
     menu_item.original_price = mrp
     menu_item.is_veg = True
@@ -449,53 +575,86 @@ def upsert_item(
         .filter(MenuItemVariant.menu_item_id == menu_item.id)
         .all()
     )
-
     by_label = {
         (v.label or "").casefold(): v
         for v in existing_variants
     }
+    intended_labels: set[str] = set()
+    keep_sizes = persist_size_variants(row)
 
-    intended_labels = set()
-
-    for sort_order, variant_data in enumerate(row.variants):
-        label = variant_data.label
-        transfer = variant_data.transfer_price
-        variant_display = money(transfer * DISPLAY_MARKUP)
-        variant_mrp = money(transfer * MRP_MARKUP)
-
-        variant = by_label.get(label.casefold())
-
-        if variant is None:
-            variant = MenuItemVariant(
-                menu_item_id=menu_item.id,
-                label=label,
+    if keep_sizes:
+        for sort_order, variant_data in enumerate(row.variants):
+            label = variant_data.label
+            transfer, variant_display, variant_mrp = prices_from_transfer(
+                variant_data.transfer_price
             )
-            db.add(variant)
+            variant = by_label.get(label.casefold())
+            if variant is None:
+                variant = MenuItemVariant(
+                    menu_item_id=menu_item.id,
+                    label=label,
+                )
+                db.add(variant)
 
-        variant.actual_price = money(transfer)
-        variant.price = variant_display
-        variant.original_price = variant_mrp
-        variant.sort_order = sort_order
-        variant.is_available = True
-        variant.is_deleted = False
-
-        intended_labels.add(label.casefold())
-
+            variant.actual_price = transfer
+            variant.price = variant_display
+            variant.original_price = variant_mrp
+            variant.sort_order = sort_order
+            variant.is_available = True
+            variant.is_deleted = False
+            intended_labels.add(label.casefold())
+            print(
+                f"{action:7} {row.name:<48} [{label:<8}] "
+                f"transfer=₹{transfer:.2f} "
+                f"display=₹{variant_display:.2f} "
+                f"MRP=₹{variant_mrp:.2f} "
+                f"[{subcategory.name}]"
+            )
+    else:
         print(
-            f"{action:7} {row.name:<48} [{label:<8}] "
+            f"{action:7} {row.name:<48} "
             f"transfer=₹{transfer:.2f} "
-            f"display=₹{variant_display:.2f} "
-            f"MRP=₹{variant_mrp:.2f} "
+            f"display=₹{display_price:.2f} "
+            f"MRP=₹{mrp:.2f} "
             f"[{subcategory.name}]"
         )
 
-    # Retire stale variants so old sizes/options are not still shown.
     for variant in existing_variants:
         if (variant.label or "").casefold() not in intended_labels:
             variant.is_available = False
             variant.is_deleted = True
 
     return action
+
+
+def retire_unlisted_items(db, restaurant: Restaurant) -> int:
+    intended = {normalize_name(row.name) for row in ITEMS}
+    rows = (
+        db.query(MenuItem)
+        .filter(
+            MenuItem.restaurant_id == restaurant.id,
+            MenuItem.is_deleted == False,
+        )
+        .all()
+    )
+    retired = 0
+    now = datetime.now(timezone.utc)
+    for menu_item in rows:
+        if normalize_name(menu_item.name) in intended:
+            continue
+        menu_item.is_deleted = True
+        menu_item.is_available = False
+        menu_item.deleted_at = now
+        retired += 1
+        print(f"retired {menu_item.name}")
+        for variant in (
+            db.query(MenuItemVariant)
+            .filter(MenuItemVariant.menu_item_id == menu_item.id)
+            .all()
+        ):
+            variant.is_available = False
+            variant.is_deleted = True
+    return retired
 
 
 def seed(dry_run: bool = False) -> None:
@@ -512,12 +671,12 @@ def seed(dry_run: bool = False) -> None:
             f"Restaurant: #{restaurant.id} {restaurant.name} "
             f"(tenant_id={restaurant.tenant_id})"
         )
-
         print(
-            f"Pricing: display = transfer + 30%; "
-            f"MRP = transfer + 39%; items={len(ITEMS)}"
+            "Pricing: display = transfer + ₹5; "
+            f"MRP = display + 5%; items={len(ITEMS)}"
         )
 
+        retired = retire_unlisted_items(db, restaurant)
         created = 0
         updated = 0
 
@@ -528,7 +687,6 @@ def seed(dry_run: bool = False) -> None:
                 row,
                 subcategories[row.subcategory_slug],
             )
-
             if action == "created":
                 created += 1
             else:
@@ -537,14 +695,14 @@ def seed(dry_run: bool = False) -> None:
         if dry_run:
             db.rollback()
             print(
-                f"DRY RUN: rolled back "
+                f"DRY RUN: rolled back {retired} retire(s), "
                 f"{created} create(s), {updated} update(s)."
             )
         else:
             db.commit()
             print(
-                f"Done: {created} item(s) created, "
-                f"{updated} item(s) updated."
+                f"Done: {retired} old item(s) cleared, "
+                f"{created} item(s) created, {updated} item(s) updated."
             )
 
     except Exception:

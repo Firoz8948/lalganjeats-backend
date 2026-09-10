@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 ClientChannel = Literal["web", "android_app", "ios_app"]
 PromoChannel = Literal["all", "mobile_app"]
-PromoAudience = Literal["all", "new_users"]
+PromoAudience = Literal["all", "new_users", "all_time"]
 DiscountType = Literal["percent", "flat"]
 
 

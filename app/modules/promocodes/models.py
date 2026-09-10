@@ -27,8 +27,8 @@ class PromoCode(Base):
     )
     code             = Column(String(40), nullable=False, index=True)
     channel          = Column(String(20), nullable=False, default="all")  # all | mobile_app
-    # all = any logged-in customer, once per mobile; new_users = first order only
-    audience         = Column(String(20), nullable=False, default="all")  # all | new_users
+    # all = any customer, once per mobile; new_users = first order only; all_time = unlimited repeat use
+    audience         = Column(String(20), nullable=False, default="all")  # all | new_users | all_time
     percent_off      = Column(Numeric(5, 2), nullable=True)               # e.g. 10.00
     # percent | flat — flat uses flat_off (₹), percent uses percent_off
     discount_type    = Column(String(20), nullable=False, default="percent")
