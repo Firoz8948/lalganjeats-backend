@@ -45,11 +45,12 @@ def test_public_identity_exposes_only_pickup_information():
 
     assert identity == {
         "name": "Ravi Kumar",
+        "phone": "9999999999",
         "selfie_url": "https://cdn.example/rider.jpg",
         "registered_vehicle_number": "UP72AB1234",
         "bike_info": "Black Hero Splendor",
     }
-    assert "phone" not in identity
+    assert identity["phone"] == "9999999999"
     assert "aadhaar_document_key" not in identity
     assert "bank_account_number" not in identity
 

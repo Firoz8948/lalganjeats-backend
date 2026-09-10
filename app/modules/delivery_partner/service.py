@@ -40,6 +40,7 @@ def serialize_public_identity(partner: User | None) -> dict | None:
     details = getattr(partner, "delivery_partner_details", None)
     return {
         "name": partner.full_name or "Delivery partner",
+        "phone": getattr(partner, "phone", None),
         "selfie_url": getattr(details, "selfie_url", None),
         "registered_vehicle_number": getattr(
             details,

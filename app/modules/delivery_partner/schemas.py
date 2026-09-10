@@ -63,6 +63,7 @@ class DeliveryPartnerCreate(BaseModel):
 
 class DeliveryPartnerPublic(BaseModel):
     name: str
+    phone: str | None = None
     selfie_url: str | None = None
     registered_vehicle_number: str | None = None
     bike_info: str | None = None
