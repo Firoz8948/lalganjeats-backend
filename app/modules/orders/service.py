@@ -120,6 +120,28 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     if not payload.items:
         raise HTTPException(400, "Cart is empty")
 
+    if payload.customer_name and payload.customer_name.strip():
+        new_name = payload.customer_name.strip()
+        current_name = (customer.full_name or "").strip()
+        if new_name != current_name:
+            customer.full_name = new_name
+            from app.modules.users.models import CustomerProfile
+
+            prof = (
+                db.query(CustomerProfile)
+                .filter(CustomerProfile.user_id == customer.id)
+                .first()
+            )
+            if prof:
+                prof.full_name = new_name
+            else:
+                prof = CustomerProfile(
+                    user_id=customer.id,
+                    phone=customer.phone,
+                    full_name=new_name,
+                )
+                db.add(prof)
+
     restaurant = (
         db.query(Restaurant)
         .options(

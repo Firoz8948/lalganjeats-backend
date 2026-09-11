@@ -18,6 +18,7 @@ class PlaceOrderRequest(BaseModel):
     payment_method: str = "cash"  # cash | online
     notes: Optional[str] = None
     promo_code: Optional[str] = None
+    customer_name: Optional[str] = None
     client_channel: Optional[str] = "web"
     device_id: Optional[str] = Field(None, max_length=64)
     items: List[PlaceOrderItem]
