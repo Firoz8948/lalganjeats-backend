@@ -70,6 +70,20 @@ def settle_delivery_earnings(
     )
 
 
+@router.post("/settlements/delivery-partners/{partner_id}/clear-cash")
+def clear_delivery_partner_cash(
+    partner_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    return settlement_service.clear_delivery_partner_cash(
+        db,
+        current,
+        partner_id,
+    )
+
+
+
 @router.get("/settlements/restaurants/{restaurant_id}/history")
 def restaurant_settlement_history(
     restaurant_id: int,

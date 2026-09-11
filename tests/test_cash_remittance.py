@@ -53,3 +53,39 @@ def test_attach_skips_orders_already_on_paid_remit():
 
     assert already.cash_remittance_id == 9
     assert free.cash_remittance_id == 5
+
+
+def test_clear_delivery_partner_cash(monkeypatch):
+    import app.main  # noqa: F401 - registers all SQLAlchemy mappers
+    from app.modules.admin.services.settlements import clear_delivery_partner_cash
+
+    admin = SimpleNamespace(id=1, role="superadmin", tenant_id=None)
+    partner = SimpleNamespace(id=42, role="delivery_partner", tenant_id=None, full_name="Rider One", phone="9876543210")
+    order1 = SimpleNamespace(id=101, cash_collected=1500.0, cash_remittance_id=None, tenant_id=None)
+    order2 = SimpleNamespace(id=102, cash_collected=2834.0, cash_remittance_id=None, tenant_id=None)
+
+    db = MagicMock()
+    def fake_add(obj):
+        obj.id = 88
+    db.add.side_effect = fake_add
+    # No stale pending remittances
+    db.query.return_value.filter.return_value.all.return_value = []
+
+    monkeypatch.setattr(
+        "app.modules.admin.services.settlements._owned_delivery_partner",
+        lambda _db, _curr, _pid: partner,
+    )
+    monkeypatch.setattr(
+        "app.modules.payments.cash_remittance.unremitted_cash_orders",
+        lambda _db, _pid: [order1, order2],
+    )
+
+    result = clear_delivery_partner_cash(db, admin, partner.id)
+
+    assert result["cleared_amount"] == 4334.0
+    assert result["cleared_orders"] == 2
+    assert "Successfully cleared cash of ₹4334.00" in result["message"]
+    assert order1.cash_remittance_id is not None
+    assert order2.cash_remittance_id is not None
+    db.commit.assert_called_once()
+

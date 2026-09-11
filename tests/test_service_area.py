@@ -5,7 +5,10 @@ from app.modules.restaurants.service_area import (
     matching_delivery_exception,
     max_active_zone_radius_km,
 )
-from app.modules.restaurants.service import _restaurant_visible_for_customer
+from app.modules.restaurants.service import (
+    _restaurant_visible_for_customer,
+    _to_public,
+)
 
 
 class _Zone:
@@ -204,4 +207,47 @@ def test_delivery_rates_for_distance_with_partner_rate():
 
     # Outside all zones
     assert delivery_rates_for_distance(zones, 6.0) is None
+
+
+def test_overlapping_exception_zone_takes_priority_over_delivery_zone():
+    class _Tenant:
+        center_latitude = 26.1600
+        center_longitude = 80.9000
+        zones = [_Zone(initial_km=0, final_km=5, rate=20, pricing_type="flat")]
+        delivery_exceptions = [_Exception(
+            latitude=26.1620,
+            longitude=80.9000,
+            radius_meters=1000,
+            delivery_charge=45.0,
+        )]
+
+    class _Restaurant:
+        id = 1
+        name = "Test Hotel"
+        slug = "test-hotel"
+        description = "Tasty Food"
+        is_open = True
+        logo_url = None
+        list_banner_url = None
+        banner_url = None
+        banner_mobile_url = None
+        address = "Main Market"
+        city = "Lalganj"
+        latitude = 26.1600
+        longitude = 80.9000
+        business_category_id = None
+        business_category = None
+        show_packing_charge = False
+        tenant = _Tenant()
+
+    # Customer sits at (26.1620, 80.9000) which is inside both Zone (0-5km) and Exception
+    # Exception must win and charge 45.0 instead of 20.0
+    public_data = _to_public(
+        _Restaurant(),
+        index=0,
+        customer_lat=26.1620,
+        customer_lng=80.9000,
+    )
+    assert public_data["delivery_charge"] == 45.0
+
 

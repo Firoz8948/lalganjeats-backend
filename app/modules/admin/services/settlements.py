@@ -338,3 +338,71 @@ def delivery_cash_history(db: Session, current: User, partner_id: int, page: int
     from app.modules.payments.history import cash_remittance_history
 
     return cash_remittance_history(db, partner_id, page)
+
+
+def clear_delivery_partner_cash(
+    db: Session,
+    current: User,
+    partner_id: int,
+):
+    from uuid import uuid4
+    from app.modules.payments.cash_remittance import (
+        encode_order_ids,
+        release_pending_remittance_orders,
+        unremitted_cash_orders,
+    )
+    from app.modules.payments.models import CashRemittance
+
+    partner = _owned_delivery_partner(db, current, partner_id)
+
+    # Release any abandoned/stale pending remittances for this partner
+    stale = (
+        db.query(CashRemittance)
+        .filter(
+            CashRemittance.delivery_partner_id == partner.id,
+            CashRemittance.status == "pending",
+        )
+        .all()
+    )
+    for remit in stale:
+        release_pending_remittance_orders(db, remit)
+
+    orders = unremitted_cash_orders(db, partner.id)
+    if current.tenant_id:
+        orders = [o for o in orders if o.tenant_id == current.tenant_id]
+
+    amount = round(sum(float(o.cash_collected or 0) for o in orders), 2)
+    if amount <= 0 or not orders:
+        raise HTTPException(400, "No unremitted cash to clear for this delivery partner")
+
+    now = datetime.now(timezone.utc)
+    remit = CashRemittance(
+        delivery_partner_id=partner.id,
+        tenant_id=partner.tenant_id or current.tenant_id,
+        amount=amount,
+        status="paid",
+        payu_txnid=f"ADMIN-CLEAR-{current.id}-{uuid4().hex[:8].upper()}",
+        payu_mihpayid=f"ADMIN-MANUAL-{current.id}",
+        created_at=now,
+        paid_at=now,
+        order_ids=encode_order_ids(orders),
+    )
+    db.add(remit)
+    db.flush()
+
+    for o in orders:
+        o.cash_remittance = remit
+        if getattr(remit, "id", None) is not None:
+            o.cash_remittance_id = remit.id
+
+    db.commit()
+
+    partner_label = partner.full_name or partner.phone or f"Partner #{partner.id}"
+    return {
+        "cleared_amount": amount,
+        "cleared_orders": len(orders),
+        "remittance_id": remit.id,
+        "partner_id": partner.id,
+        "message": f"Successfully cleared cash of ₹{amount:.2f} for {partner_label}. Cash on hand reset to ₹0.00.",
+    }
+
