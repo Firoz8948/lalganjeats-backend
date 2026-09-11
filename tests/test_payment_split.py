@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from app.modules.payments.breakdown import (
     admin_price_view,
+    breakdown_from_order,
     build_order_price_breakdown,
     customer_price_view,
 )
@@ -408,4 +409,22 @@ def test_calculate_split_with_delivery_margin():
     # Admin earning: customer (156) - hotel (80) - delivery_earning (51) = 25
     # (Menu margin 20 + platform 2 + delivery margin 3 = 25)
     assert split.admin_earning == 25.0
+
+
+def test_order_breakdown_zone1_with_delivery_margin():
+    order = SimpleNamespace(
+        display_total=286.0,
+        actual_total=220.0,
+        platform_fee=2.0,
+        delivery_fee=19.0,
+        discount=42.9,
+        delivery_partner_earning=17.0,
+        packing_charge=0.0,
+    )
+    bd = breakdown_from_order(order, platform_charge=2.0)
+    assert bd.customer.delivery_charge == 19.0
+    assert bd.admin.delivery_payout == 17.0
+    assert bd.admin.delivery_margin == 2.0
+    assert bd.customer.customer_total == 264.1
+    assert bd.admin.admin_profit == 27.1
 

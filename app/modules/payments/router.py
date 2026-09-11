@@ -71,11 +71,18 @@ def process_payment_split(order_id: int) -> None:
         pay_settings = ensure_payment_settings(db)
         display_total, actual_total = order_display_actual_totals(order)
         packing_charge = float(getattr(order, "packing_charge", 0) or 0)
+        dp_payout = (
+            float(order.delivery_partner_earning)
+            if order.delivery_partner_earning is not None
+            else float(order.delivery_fee or 0)
+        )
         split = calculate_split(
             display_total,
             actual_total,
             pay_settings,
             delivery_charge=float(order.delivery_fee or 0),
+            delivery_payout=dp_payout,
+            discount=float(order.discount or 0),
             packing_charge=packing_charge,
         )
 
@@ -84,6 +91,7 @@ def process_payment_split(order_id: int) -> None:
         order.platform_fee = split.platform_fee
         order.admin_earning = split.admin_earning
         order.delivery_fee = split.delivery_charge
+        order.delivery_partner_earning = split.delivery_earning
         order.total_amount = split.customer_pays
 
         restaurant = order.restaurant
@@ -263,11 +271,18 @@ def create_razorpay_order(
     pay_settings = ensure_payment_settings(db)
     display_total, actual_total = order_display_actual_totals(order)
     packing_charge = float(getattr(order, "packing_charge", 0) or 0)
+    dp_payout = (
+        float(order.delivery_partner_earning)
+        if order.delivery_partner_earning is not None
+        else float(order.delivery_fee or 0)
+    )
     split = calculate_split(
         display_total,
         actual_total,
         pay_settings,
         delivery_charge=float(order.delivery_fee or 0),
+        delivery_payout=dp_payout,
+        discount=float(order.discount or 0),
         packing_charge=packing_charge,
     )
 

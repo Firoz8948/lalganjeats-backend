@@ -33,6 +33,10 @@ def _parse_day(value: str | None) -> date:
     return datetime.now(IST).date()
 
 
+def _order_delivered_col():
+    return func.coalesce(Order.delivery_otp_verified_at, Order.created_at)
+
+
 def _ensure_profile(db: Session, user_id: int) -> DeliveryProfile:
     profile = db.query(DeliveryProfile).filter(DeliveryProfile.user_id == user_id).first()
     if not profile:
@@ -54,20 +58,28 @@ def get_dashboard(
     if profile.is_online:
         dispatch.ensure_open_offers_for_partner(db, current_user)
 
-    today = datetime.utcnow().date()
+    delivered_col = _order_delivered_col()
+    today_start, today_end = _ist_day_bounds(datetime.now(IST).date())
 
     today_orders = db.query(Order).filter(
         Order.delivery_partner_id == current_user.id,
         Order.status == "delivered",
-        func.date(Order.updated_at) == today,
+        delivered_col >= today_start,
+        delivered_col < today_end,
     ).count()
 
     today_earn = db.query(
-        func.coalesce(func.sum(Order.delivery_partner_earning), 0)
+        func.coalesce(
+            func.sum(
+                func.coalesce(Order.delivery_partner_earning, Order.delivery_fee, 0)
+            ),
+            0,
+        )
     ).filter(
         Order.delivery_partner_id == current_user.id,
         Order.status == "delivered",
-        func.date(Order.updated_at) == today,
+        delivered_col >= today_start,
+        delivered_col < today_end,
     ).scalar()
 
     actives = (
@@ -453,16 +465,17 @@ def list_my_orders(
         Order.delivery_partner_id == current_user.id,
         Order.status != "cancelled",
     )
+    delivered_col = _order_delivered_col()
     if filter == "active":
         q = q.filter(Order.status.in_(["accepted", "ready", "picked_up"]))
     elif filter in ("today", "history", "delivered"):
         q = q.filter(Order.status == "delivered")
         if filter == "today":
             start, end = _ist_day_bounds(_parse_day(date))
-            q = q.filter(Order.updated_at >= start, Order.updated_at < end)
+            q = q.filter(delivered_col >= start, delivered_col < end)
         elif date:
             start, end = _ist_day_bounds(_parse_day(date))
-            q = q.filter(Order.updated_at >= start, Order.updated_at < end)
+            q = q.filter(delivered_col >= start, delivered_col < end)
 
     page_size = 10
     page = max(1, int(page or 1))
@@ -477,7 +490,7 @@ def list_my_orders(
             joinedload(Order.restaurant),
             joinedload(Order.customer),
         )
-        .order_by(Order.updated_at.desc().nullslast(), Order.created_at.desc())
+        .order_by(delivered_col.desc(), Order.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -500,19 +513,23 @@ def get_earnings(
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
+    delivered_col = _order_delivered_col()
     query = db.query(Order).filter(
         Order.delivery_partner_id == current_user.id,
         Order.status == "delivered",
     )
-    now = datetime.utcnow()
+    now_ist = datetime.now(IST)
     if filter == "today":
-        query = query.filter(func.date(Order.updated_at) == now.date())
+        start, end = _ist_day_bounds(now_ist.date())
+        query = query.filter(delivered_col >= start, delivered_col < end)
     elif filter == "week":
-        query = query.filter(Order.updated_at >= now - timedelta(days=7))
+        start = (now_ist - timedelta(days=7)).astimezone(timezone.utc)
+        query = query.filter(delivered_col >= start)
     elif filter == "month":
-        query = query.filter(Order.updated_at >= now - timedelta(days=30))
+        start = (now_ist - timedelta(days=30)).astimezone(timezone.utc)
+        query = query.filter(delivered_col >= start)
 
-    orders = query.order_by(Order.updated_at.desc()).all()
+    orders = query.order_by(delivered_col.desc(), Order.id.desc()).all()
     total = sum(
         float(o.delivery_partner_earning if o.delivery_partner_earning is not None else (o.delivery_fee or 0))
         for o in orders
@@ -535,7 +552,11 @@ def get_earnings(
                 ),
                 "cash_collected": float(o.cash_collected or 0),
                 "payment_method": o.payment_method,
-                "delivered_at": o.updated_at.isoformat() if o.updated_at else None,
+                "delivered_at": (
+                    (o.delivery_otp_verified_at or o.created_at).isoformat()
+                    if (o.delivery_otp_verified_at or o.created_at)
+                    else None
+                ),
             }
             for o in orders
         ],
