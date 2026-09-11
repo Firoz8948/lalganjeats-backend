@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.item_lines import serialize_ordered_items
-from app.modules.orders.models import Order
+from app.modules.orders.models import DeliveryOffer, DeliveryProfile, Order
 from app.modules.orders.status_meta import ORDER_STATUSES
 from app.modules.payments.breakdown import breakdown_from_order, display_payment_mode
 from app.modules.payments.models import DeliveryEarning, RestaurantEarning
@@ -407,3 +407,105 @@ def get_hotel_partner_earnings(
                 "total_orders": int(total_orders),
             })
     return result
+
+
+def cancel_order(
+    db: Session,
+    current: User,
+    order_id_or_number: int | str,
+    reason: str | None = None,
+):
+    query = db.query(Order)
+    if isinstance(order_id_or_number, int) or (
+        isinstance(order_id_or_number, str) and order_id_or_number.isdigit()
+    ):
+        query = query.filter(Order.id == int(order_id_or_number))
+    else:
+        query = query.filter(Order.order_number == str(order_id_or_number).strip())
+
+    if current.tenant_id:
+        query = query.filter(Order.tenant_id == current.tenant_id)
+
+    order = query.first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+
+    if order.status == "cancelled":
+        return {
+            "status": "cancelled",
+            "message": f"Order {order.order_number} is already cancelled",
+            "order_number": order.order_number,
+            "order_id": order.id,
+        }
+
+    prev_status = order.status
+    order.status = "cancelled"
+
+    # If it was delivered and delivery partner had earned total_earnings, deduct
+    if prev_status == "delivered" and order.delivery_partner_id:
+        payout = float(
+            order.delivery_partner_earning
+            if order.delivery_partner_earning is not None
+            else (order.delivery_fee or 0)
+        )
+        dp_profile = (
+            db.query(DeliveryProfile)
+            .filter(DeliveryProfile.user_id == order.delivery_partner_id)
+            .first()
+        )
+        if dp_profile and dp_profile.total_earnings:
+            dp_profile.total_earnings = max(
+                0.0, float(dp_profile.total_earnings) - payout
+            )
+
+    # Cancel any active or pending delivery offers
+    offers = (
+        db.query(DeliveryOffer)
+        .filter(DeliveryOffer.order_id == order.id)
+        .all()
+    )
+    for off in offers:
+        if off.status in ("offered", "accepted"):
+            off.status = "cancelled"
+
+    # Clean up unsettled earnings so partners are not credited for cancelled orders
+    db.query(RestaurantEarning).filter(
+        RestaurantEarning.order_id == order.id,
+        RestaurantEarning.transfer_status.in_(["unsettled", "pending"]),
+    ).delete(synchronize_session=False)
+
+    db.query(DeliveryEarning).filter(
+        DeliveryEarning.order_id == order.id,
+        DeliveryEarning.transfer_status.in_(["unsettled", "pending"]),
+    ).delete(synchronize_session=False)
+
+    # Clear cash collected if any so it does not count against delivery partner's cash on hand
+    order.cash_collected = None
+
+    # Note down admin cancellation audit
+    admin_identifier = current.full_name or current.phone or f"Admin #{current.id}"
+    reason_text = f"Cancelled by {admin_identifier}" + (
+        f": {reason.strip()}" if reason and reason.strip() else ""
+    )
+    if order.notes:
+        order.notes = f"{order.notes} | {reason_text}"
+    else:
+        order.notes = reason_text
+
+    db.commit()
+
+    # Broadcast tracking update to customer and delivery partner apps
+    try:
+        from app.modules.tracking.service import broadcast_order_tracking
+
+        broadcast_order_tracking(db, order.id)
+    except Exception:
+        pass
+
+    return {
+        "status": "cancelled",
+        "message": f"Order {order.order_number} cancelled successfully",
+        "order_number": order.order_number,
+        "order_id": order.id,
+    }
+

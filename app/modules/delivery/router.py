@@ -103,7 +103,7 @@ def get_dashboard(
     )
     for off in offers:
         o = off.order
-        if not o or o.delivery_partner_id:
+        if not o or o.delivery_partner_id or o.status == "cancelled":
             continue
         available.append(dispatch.serialize_offer_order(db, o, current_user))
 
@@ -449,7 +449,10 @@ def list_my_orders(
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
-    q = db.query(Order).filter(Order.delivery_partner_id == current_user.id)
+    q = db.query(Order).filter(
+        Order.delivery_partner_id == current_user.id,
+        Order.status != "cancelled",
+    )
     if filter == "active":
         q = q.filter(Order.status.in_(["accepted", "ready", "picked_up"]))
     elif filter in ("today", "history", "delivered"):

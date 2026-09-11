@@ -105,6 +105,7 @@ def get_dashboard(
 
     total_orders   = db.query(Order).filter(
                         Order.restaurant_id == restaurant.id,
+                        Order.status != "cancelled",
                         fulfillment_sql_filter(Order),
                     ).count()
     pending_orders = db.query(Order).filter(
@@ -139,6 +140,7 @@ def get_dashboard(
 
     recent_orders = db.query(Order).filter(
         Order.restaurant_id == restaurant.id,
+        Order.status != "cancelled",
         fulfillment_sql_filter(Order),
     ).order_by(Order.created_at.desc()).limit(10).all()
 
@@ -374,17 +376,18 @@ def get_orders(
     )
 
     if status == "cancelled":
-        query = query.filter(Order.status == "cancelled")
-    else:
-        query = query.filter(fulfillment_sql_filter(Order))
+        return []
+
+    query = query.filter(
+        Order.status != "cancelled",
+        fulfillment_sql_filter(Order),
+    )
 
     if status == "active":
         query = query.filter(
             Order.status.in_(["accepted", "ready", "picked_up"])
         )
-    elif status == "history":
-        query = query.filter(Order.status == "delivered")
-    elif status == "delivered":
+    elif status in ("history", "delivered"):
         query = query.filter(Order.status == "delivered")
     elif status == "pending":
         query = query.filter(

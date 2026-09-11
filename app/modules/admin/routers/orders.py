@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -44,6 +45,22 @@ def get_order_breakdown(
     - admin view: customer total − hotel − delivery
     """
     return order_service.get_order_breakdown(db, current, order_id)
+
+
+class CancelOrderPayload(BaseModel):
+    reason: str | None = None
+
+
+@router.post("/orders/{order_id}/cancel")
+def cancel_order(
+    order_id: str,
+    payload: CancelOrderPayload | None = None,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_admin),
+):
+    """Admin cancel order anytime: updates status to cancelled, cleans up unsettled earnings/offers, revokes from partner histories."""
+    reason = payload.reason if payload else None
+    return order_service.cancel_order(db, current, order_id, reason=reason)
 
 
 @router.get("/payments/received")
