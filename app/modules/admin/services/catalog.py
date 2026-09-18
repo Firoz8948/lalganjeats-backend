@@ -8,6 +8,7 @@ from app.modules.restaurants.models import (
     CatalogCategory,
     CatalogSubcategory,
     MenuItem,
+    Restaurant,
 )
 
 
@@ -127,37 +128,77 @@ def list_subcategories(
     db: Session,
     category_id: int,
     product_sort: str | None = None,
+    tenant_id: int | None = None,
 ):
-    """Return subcategories with the number of live (non-deleted) menu items."""
-    query = (
-        db.query(
-            CatalogSubcategory,
-            func.count(MenuItem.id).label("product_count"),
+    """Return subcategories with live product counts for this admin's tenant."""
+    if tenant_id is not None:
+        # Count only menu items belonging to restaurants in this tenant,
+        # without dropping subcategories that have zero local products.
+        tenant_items = (
+            db.query(
+                MenuItem.id.label("id"),
+                MenuItem.business_subcategory_id.label("business_subcategory_id"),
+            )
+            .join(Restaurant, Restaurant.id == MenuItem.restaurant_id)
+            .filter(
+                Restaurant.tenant_id == tenant_id,
+                MenuItem.is_deleted == False,  # noqa: E712
+            )
+            .subquery()
         )
-        .outerjoin(
-            MenuItem,
-            (MenuItem.business_subcategory_id == CatalogSubcategory.id)
-            & (MenuItem.is_deleted == False),
+        count_col = func.count(tenant_items.c.id).label("product_count")
+        query = (
+            db.query(CatalogSubcategory, count_col)
+            .outerjoin(
+                tenant_items,
+                tenant_items.c.business_subcategory_id == CatalogSubcategory.id,
+            )
+            .filter(CatalogSubcategory.category_id == category_id)
+            .group_by(CatalogSubcategory.id)
         )
-        .filter(CatalogSubcategory.category_id == category_id)
-        .group_by(CatalogSubcategory.id)
-    )
+    else:
+        count_col = func.count(MenuItem.id).label("product_count")
+        query = (
+            db.query(CatalogSubcategory, count_col)
+            .outerjoin(
+                MenuItem,
+                (MenuItem.business_subcategory_id == CatalogSubcategory.id)
+                & (MenuItem.is_deleted == False),  # noqa: E712
+            )
+            .filter(CatalogSubcategory.category_id == category_id)
+            .group_by(CatalogSubcategory.id)
+        )
+
     if product_sort == "asc":
-        query = query.order_by(
-            func.count(MenuItem.id).asc(),
-            CatalogSubcategory.name.asc(),
-        )
+        query = query.order_by(count_col.asc(), CatalogSubcategory.name.asc())
     elif product_sort == "desc":
-        query = query.order_by(
-            func.count(MenuItem.id).desc(),
-            CatalogSubcategory.name.asc(),
-        )
+        query = query.order_by(count_col.desc(), CatalogSubcategory.name.asc())
     else:
         query = query.order_by(
             CatalogSubcategory.sort_order,
             CatalogSubcategory.name,
         )
     return query.all()
+
+
+def subcategory_product_count(
+    db: Session,
+    subcategory_id: int,
+    tenant_id: int | None = None,
+) -> int:
+    """Live (non-deleted) menu items linked to this subcategory."""
+    query = (
+        db.query(func.count(MenuItem.id))
+        .filter(
+            MenuItem.business_subcategory_id == subcategory_id,
+            MenuItem.is_deleted == False,  # noqa: E712
+        )
+    )
+    if tenant_id is not None:
+        query = query.join(Restaurant, Restaurant.id == MenuItem.restaurant_id).filter(
+            Restaurant.tenant_id == tenant_id,
+        )
+    return int(query.scalar() or 0)
 
 
 def create_subcategory(db: Session, category_id: int, name: str):
@@ -219,6 +260,19 @@ def toggle_subcategory_featured(db: Session, subcategory_id: int):
     if not item:
         raise HTTPException(404, "Subcategory not found")
     item.is_featured = not bool(item.is_featured)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def set_subcategory_image(db: Session, subcategory_id: int, image_url: str | None):
+    item = db.query(CatalogSubcategory).filter(
+        CatalogSubcategory.id == subcategory_id
+    ).first()
+    if not item:
+        raise HTTPException(404, "Subcategory not found")
+    clean = (image_url or "").strip() or None
+    item.image_url = clean
     db.commit()
     db.refresh(item)
     return item

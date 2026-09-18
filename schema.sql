@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS catalog_subcategories (
     sort_order  INTEGER DEFAULT 0,
     is_active   BOOLEAN DEFAULT TRUE,
     is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+    image_url   TEXT,
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT uq_catalog_subcategory_slug UNIQUE (category_id, slug)
 );

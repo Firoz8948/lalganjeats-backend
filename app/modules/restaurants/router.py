@@ -33,24 +33,46 @@ def list_restaurants(
     )
 
 
+@router.get("/search")
+def search_restaurants(
+    q: str = Query(..., min_length=2, max_length=80, description="Dish or food name"),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
+    db: Session = Depends(get_db),
+):
+    """Public search — restaurants that have a matching menu item near the customer."""
+    return service.search_restaurants_by_dish(
+        db,
+        q=q,
+        customer_lat=lat,
+        customer_lng=lng,
+    )
+
+
 @router.get("/subcategories/featured")
 def featured_subcategories(db: Session = Depends(get_db)):
-    """Admin-curated home-row subcategories that currently have sellable items."""
+    """Admin-curated home-row subcategories (featured + active)."""
     rows = (
         db.query(
             CatalogSubcategory,
             func.count(MenuItem.id).label("product_count"),
             func.count(func.distinct(MenuItem.restaurant_id)).label("restaurant_count"),
         )
-        .join(MenuItem, MenuItem.business_subcategory_id == CatalogSubcategory.id)
-        .join(Restaurant, Restaurant.id == MenuItem.restaurant_id)
+        .outerjoin(
+            MenuItem,
+            (MenuItem.business_subcategory_id == CatalogSubcategory.id)
+            & (MenuItem.is_deleted == False)
+            & (MenuItem.is_available == True),
+        )
+        .outerjoin(
+            Restaurant,
+            (Restaurant.id == MenuItem.restaurant_id)
+            & (Restaurant.is_active == True)
+            & (Restaurant.is_approved == True),
+        )
         .filter(
             CatalogSubcategory.is_active == True,
             CatalogSubcategory.is_featured == True,
-            MenuItem.is_deleted == False,
-            MenuItem.is_available == True,
-            Restaurant.is_active == True,
-            Restaurant.is_approved == True,
         )
         .group_by(CatalogSubcategory.id)
         .order_by(CatalogSubcategory.sort_order, CatalogSubcategory.name)
@@ -61,6 +83,7 @@ def featured_subcategories(db: Session = Depends(get_db)):
             "id": item.id,
             "name": item.name,
             "slug": item.slug,
+            "image_url": item.image_url,
             "product_count": product_count,
             "restaurant_count": restaurant_count,
         }

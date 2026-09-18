@@ -45,6 +45,7 @@ class CatalogSubcategory(Base):
     is_active = Column(Boolean, default=True)
     # Admin-curated subcategories shown in the customer home hero row.
     is_featured = Column(Boolean, default=False)
+    image_url = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     category = relationship("CatalogCategory", back_populates="subcategories")

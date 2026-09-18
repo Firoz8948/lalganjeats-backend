@@ -139,6 +139,8 @@ def run_auto_migrations():
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS initial_km NUMERIC(8,2);",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS final_km NUMERIC(8,2);",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS delivery_partner_rate NUMERIC(10,2);",
+        "ALTER TABLE catalog_subcategories ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE catalog_subcategories ADD COLUMN IF NOT EXISTS image_url TEXT;",
     ]
     for stmt in statements:
         try:

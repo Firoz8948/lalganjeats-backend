@@ -5,6 +5,10 @@ class CatalogNameCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=120)
 
 
+class CatalogSubcategoryImageUpdate(BaseModel):
+    image_url: str | None = None
+
+
 class RestaurantImpersonationResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

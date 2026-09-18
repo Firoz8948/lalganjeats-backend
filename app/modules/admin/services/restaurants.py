@@ -615,6 +615,7 @@ async def upload_restaurant_image(
         "menu_item": "restaurants/menu_items",
         "home_banner_desktop": "home_banners/desktop",
         "home_banner_mobile": "home_banners/mobile",
+        "subcategory": "catalog/subcategories",
     }
     if purpose not in folder_map:
         raise HTTPException(
@@ -622,7 +623,7 @@ async def upload_restaurant_image(
             detail=(
                 "purpose must be 'list_banner', 'menu_banner', "
                 "'menu_banner_mobile', 'menu_item', "
-                "'home_banner_desktop', or 'home_banner_mobile'"
+                "'home_banner_desktop', 'home_banner_mobile', or 'subcategory'"
             ),
         )
 

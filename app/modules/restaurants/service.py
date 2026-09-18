@@ -219,6 +219,69 @@ def list_public_restaurants(
     ]
 
 
+def search_restaurants_by_dish(
+    db: Session,
+    *,
+    q: str,
+    customer_lat: float | None = None,
+    customer_lng: float | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Find restaurants (in delivery area) that sell a matching menu item."""
+    query = (q or "").strip()
+    if len(query) < 2:
+        return []
+    if customer_lat is None or customer_lng is None:
+        return []
+
+    # "matar paneer" → %matar%paneer% so word order / spacing is flexible
+    parts = [p for p in re.split(r"\s+", query) if p]
+    pattern = "%" + "%".join(parts) + "%"
+
+    rows = (
+        db.query(Restaurant, MenuItem.name)
+        .options(
+            joinedload(Restaurant.tenant).joinedload(Tenant.zones),
+            joinedload(Restaurant.tenant).joinedload(Tenant.delivery_exceptions),
+        )
+        .join(MenuItem, MenuItem.restaurant_id == Restaurant.id)
+        .filter(
+            Restaurant.is_active == True,  # noqa: E712
+            Restaurant.is_approved == True,  # noqa: E712
+            MenuItem.is_deleted == False,  # noqa: E712
+            MenuItem.is_available == True,  # noqa: E712
+            MenuItem.name.ilike(pattern),
+        )
+        .order_by(Restaurant.is_open.desc(), Restaurant.name.asc(), MenuItem.name.asc())
+        .all()
+    )
+
+    by_id: dict[int, dict] = {}
+    for restaurant, item_name in rows:
+        existing = by_id.get(restaurant.id)
+        if existing is None:
+            if len(by_id) >= limit:
+                continue
+            if not _restaurant_visible_for_customer(
+                restaurant, customer_lat, customer_lng
+            ):
+                continue
+            payload = _to_public(
+                restaurant,
+                restaurant.id,
+                customer_lat,
+                customer_lng,
+            )
+            payload["matched_items"] = []
+            by_id[restaurant.id] = payload
+            existing = payload
+        items: list[str] = existing["matched_items"]
+        if item_name and item_name not in items and len(items) < 4:
+            items.append(item_name)
+
+    return list(by_id.values())
+
+
 def resolve_restaurant_key(db: Session, key: str) -> Restaurant | None:
     """Look up by numeric id or public slug (active + approved)."""
     key = (key or "").strip()
