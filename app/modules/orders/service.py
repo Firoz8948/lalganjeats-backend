@@ -406,30 +406,11 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
             db.commit()
 
     # Notify hotel + customer + admins only when payment is already settled
-    # (COD) or not required. Online prepaid waits for PayU success.
+    # (COD) or not required. Online prepaid waits until Razorpay verify/webhook.
     if order.payment_method != "online" or order.payment_status == "paid":
-        hotel_phone = restaurant.phone or (
-            restaurant.owner.phone if getattr(restaurant, "owner", None) else None
-        )
-        sms.notify_new_order(
-            order_number=order.order_number,
-            customer_phone=customer.phone,
-            customer_name=_sms_customer_name(db, customer),
-            hotel_phone=hotel_phone,
-        )
+        from app.core.order_alerts import notify_hotel_new_order
 
-        # Send FCM background push to restaurant owner
-        if getattr(restaurant, "owner", None) and getattr(restaurant.owner, "fcm_token", None):
-            try:
-                from app.core.fcm import send_push_notification
-                send_push_notification(
-                    restaurant.owner.fcm_token,
-                    "🎉 New Order Received!",
-                    f"You received a new order #{order.order_number}. Accept now and cook it!",
-                    {"order_id": str(order.id), "type": "new_order"},
-                )
-            except Exception:
-                pass
+        notify_hotel_new_order(db, order)
 
     return {
         "id": order.id,

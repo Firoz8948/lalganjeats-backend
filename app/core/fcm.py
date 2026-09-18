@@ -98,7 +98,10 @@ def init_firebase() -> bool:
 #         customer-facing pushes (order status, promo blasts) so the phone
 #         behaves like every other app the customer has installed.
 _URGENT_SOUND = "order_alert"
-_URGENT_CHANNEL = "lalganjeats_urgent_orders"
+# v2: Android notification channels are immutable. Older installs may have
+# created lalganjeats_urgent_orders without the loud sound — a new id forces
+# a fresh high-importance channel with order_alert after partners open the app.
+_URGENT_CHANNEL = "lalganjeats_urgent_v2"
 _NORMAL_SOUND = "default"
 _NORMAL_CHANNEL = "lalganjeats_alerts"
 
@@ -143,6 +146,8 @@ def send_push_notification(
                     channel_id=channel_id,
                     priority="max",
                     default_vibrate_timings=True,
+                    default_light_settings=True,
+                    visibility="public",
                 ),
             ),
         )
@@ -191,6 +196,8 @@ def send_multicast_push(
                     channel_id=channel_id,
                     priority="max",
                     default_vibrate_timings=True,
+                    default_light_settings=True,
+                    visibility="public",
                 ),
             ),
         )

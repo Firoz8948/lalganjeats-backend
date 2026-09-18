@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_WEBHOOK_SECRET: str = ""
     RAZORPAY_ACCOUNT_NUMBER: str = ""
-    # Payment Methods Configuration ID from Razorpay Dashboard
-    RAZORPAY_CHECKOUT_CONFIG_ID: str = "config_TdNXzf802dgiBT"
+    # Payment Methods Configuration ID from Razorpay Dashboard (live mode).
+    RAZORPAY_CHECKOUT_CONFIG_ID: str = "config_TdNXzf8O2dgiBT"
 
     # Public API origin (webhooks / payment-link references)
     API_PUBLIC_URL: str = "http://localhost:8000"

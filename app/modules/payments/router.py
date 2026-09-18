@@ -312,37 +312,10 @@ def create_razorpay_order(
 
 
 def _notify_new_order_sms(db: Session, order: Order) -> None:
-    from app.core import sms as sms_mod
+    """Backward-compatible name — now also sends loud hotel FCM. """
+    from app.core.order_alerts import notify_hotel_new_order
 
-    restaurant = order.restaurant
-    hotel_phone = None
-    if restaurant:
-        hotel_phone = restaurant.phone or (
-            restaurant.owner.phone if getattr(restaurant, "owner", None) else None
-        )
-
-    customer = order.customer
-    customer_name = "Customer"
-    if customer:
-        customer_name = (customer.full_name or "").strip() or "Customer"
-        if customer_name.lower().startswith("user_"):
-            from app.modules.users.models import CustomerProfile
-
-            prof = (
-                db.query(CustomerProfile)
-                .filter(CustomerProfile.user_id == customer.id)
-                .first()
-            )
-            if prof and (prof.full_name or "").strip():
-                customer_name = prof.full_name.strip()
-        customer_name = customer_name.split()[0]
-
-    sms_mod.notify_new_order(
-        order_number=order.order_number,
-        customer_phone=customer.phone if customer else None,
-        customer_name=customer_name,
-        hotel_phone=hotel_phone,
-    )
+    notify_hotel_new_order(db, order)
 
 
 def _mark_collection_paid(db: Session, *, plink_id: str, payment_id: str | None = None) -> Order | None:

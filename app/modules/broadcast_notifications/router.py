@@ -109,7 +109,7 @@ def test_push_to_self(
         body=f"Hi {current_user.full_name or 'there'}, your notifications are working.",
         data={"type": "self_test", "deep_link": "/home"},
         sound="default" if is_customer else "order_alert",
-        channel_id="lalganjeats_alerts" if is_customer else "lalganjeats_urgent_orders",
+        channel_id="lalganjeats_alerts" if is_customer else "lalganjeats_urgent_v2",
     )
 
     return {
@@ -121,7 +121,7 @@ def test_push_to_self(
             "phone still doesn't buzz: (1) the OS may have revoked notif "
             "permission, (2) the token may be stale (uninstall/reinstall the "
             "app), (3) battery-saver / DND may be silencing the channel, or "
-            "(4) the channel `lalganjeats_urgent_orders` was not yet created "
-            "on the device."
+            "(4) the channel `lalganjeats_urgent_v2` was not yet created "
+            "on the device — open the partner app once after the OTA."
         ),
     }

@@ -49,6 +49,18 @@ def create_order(
     cfg = (config_id if config_id is not None else checkout_config_id()).strip()
     if cfg:
         payload["checkout_config_id"] = cfg
+        try:
+            return client.order.create(payload)
+        except Exception as exc:
+            # Invalid/mismatched Configuration ID must not block checkout.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Razorpay order with checkout_config_id=%s failed (%s); retrying without it",
+                cfg,
+                exc,
+            )
+            payload.pop("checkout_config_id", None)
     return client.order.create(payload)
 
 
@@ -80,6 +92,17 @@ def create_payment_link(
     cfg = checkout_config_id()
     if cfg:
         payload["options"] = {"checkout": {"checkout_config_id": cfg}}
+        try:
+            return client.payment_link.create(payload)
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Razorpay payment_link with checkout_config_id=%s failed (%s); retrying without it",
+                cfg,
+                exc,
+            )
+            payload.pop("options", None)
     return client.payment_link.create(payload)
 
 
