@@ -94,7 +94,7 @@ class BankAccount(Base):
 
 
 class CashRemittance(Base):
-    """Delivery partner remits doorstep cash to the platform via PayU."""
+    """Delivery partner remits doorstep cash to the platform via Razorpay."""
 
     __tablename__ = "cash_remittances"
 
@@ -108,8 +108,11 @@ class CashRemittance(Base):
     amount = Column(Float, nullable=False)
     status = Column(String(20), default="pending", nullable=False, index=True)
     order_ids = Column(Text, nullable=True)
+    # Legacy PayU columns retained for historical rows only.
     payu_txnid = Column(String(100), nullable=True, index=True)
     payu_mihpayid = Column(String(100), nullable=True)
+    razorpay_order_id = Column(String(100), nullable=True, index=True)
+    razorpay_payment_id = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     paid_at = Column(DateTime(timezone=True), nullable=True)
 

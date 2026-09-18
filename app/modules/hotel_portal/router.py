@@ -238,10 +238,37 @@ def get_menu(
     current_user=Depends(get_restaurant_owner)
 ):
     restaurant = _get_restaurant(db, current_user)
-    items = db.query(MenuItem).filter(
-        MenuItem.restaurant_id == restaurant.id,
-        MenuItem.is_deleted == False
-    ).order_by(MenuItem.sort_order).all()
+    items = (
+        db.query(MenuItem)
+        .options(joinedload(MenuItem.variants))
+        .filter(
+            MenuItem.restaurant_id == restaurant.id,
+            MenuItem.is_deleted == False
+        )
+        .order_by(MenuItem.sort_order, MenuItem.id)
+        .all()
+    )
+
+    def _serialize_hp_variants(item: MenuItem) -> list[dict]:
+        rows = [
+            v for v in (item.variants or [])
+            if not getattr(v, "is_deleted", False)
+        ]
+        rows.sort(key=lambda v: (v.sort_order or 0, v.id or 0))
+        if len(rows) == 1 and (rows[0].label or "").strip().lower() == "regular":
+            return []
+        return [
+            {
+                "id": v.id,
+                "label": v.label,
+                "actual_price": float(v.actual_price) if v.actual_price is not None else float(v.price),
+                "price": float(v.price),
+                "original_price": float(v.original_price) if v.original_price else None,
+                "is_available": v.is_available,
+                "sort_order": v.sort_order or 0,
+            }
+            for v in rows
+        ]
 
     return [
         {
@@ -256,6 +283,7 @@ def get_menu(
             "is_bestseller":  i.is_bestseller,
             "category_id":    i.category_id,
             "image_url":      i.image_url,
+            "variants":       _serialize_hp_variants(i),
         }
         for i in items
     ]

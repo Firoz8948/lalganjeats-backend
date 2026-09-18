@@ -1,20 +1,19 @@
 # backend/app/modules/payments/cash_remittance.py
-"""Doorstep cash on hand + PayU remittance to platform."""
+"""Doorstep cash on hand + Razorpay remittance to platform."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.payu_service import (
-    build_checkout_payload,
-    payu_configured,
-    payu_payment_url,
-    verify_response_hash,
+from app.core.razorpay_service import (
+    checkout_config_id,
+    create_order,
+    razorpay_configured,
+    verify_payment_signature,
 )
 from app.modules.orders.models import Order
 from app.modules.payments.models import CashRemittance
@@ -79,10 +78,10 @@ def cash_on_hand(db: Session, partner: User) -> dict:
 
 
 def initiate_cash_remittance(db: Session, partner: User) -> dict:
-    if not payu_configured():
-        raise HTTPException(503, "PayU is not configured")
+    if not razorpay_configured():
+        raise HTTPException(503, "Razorpay is not configured")
 
-    # Abandoned / failed PayU attempts leave pending remits — free those orders first.
+    # Abandoned / failed attempts leave pending remits — free those orders first.
     stale = (
         db.query(CashRemittance)
         .filter(
@@ -99,43 +98,44 @@ def initiate_cash_remittance(db: Session, partner: User) -> dict:
     if amount <= 0:
         raise HTTPException(400, "No unremitted cash to clear")
 
-    api_base = (settings.API_PUBLIC_URL or "").rstrip("/")
-    if not api_base:
-        raise HTTPException(503, "API_PUBLIC_URL is not configured")
-
     remit = CashRemittance(
         delivery_partner_id=partner.id,
         tenant_id=partner.tenant_id,
         amount=amount,
         status="pending",
-        payu_txnid=f"CR{partner.id}{uuid4().hex[:10]}".upper()[:40],
         order_ids=encode_order_ids(orders),
     )
     db.add(remit)
     db.commit()
     db.refresh(remit)
-    # Do NOT set order.cash_remittance_id yet. Cash on hand stays until PayU
-    # success is verified and the remittance is marked paid (Revenue).
 
-    fields = build_checkout_payload(
-        txnid=remit.payu_txnid,
-        amount=amount,
-        productinfo=f"Clear collected cash #{remit.id}",
-        firstname=(partner.full_name or "Partner")[:60],
-        email=(partner.email or "partner@lalganjeats.com")[:100],
-        phone=(partner.phone or "")[:20],
-        surl=f"{api_base}/api/v1/payment/payu/success",
-        furl=f"{api_base}/api/v1/payment/payu/failure",
-        udf1=str(remit.id),
-        udf2=f"cash-remit-{remit.id}",
-        udf3="cash_remit",
+    rz_order = create_order(
+        amount_rupees=amount,
+        receipt=f"remit_{remit.id}",
+        notes={
+            "flow": "cash_remit",
+            "remittance_id": str(remit.id),
+            "partner_id": str(partner.id),
+        },
     )
+    remit.razorpay_order_id = rz_order["id"]
+    db.commit()
+
     return {
-        "payment_url": payu_payment_url(),
-        "fields": fields,
         "remittance_id": remit.id,
         "amount": amount,
         "order_count": len(orders),
+        "razorpay_order_id": rz_order["id"],
+        "currency": "INR",
+        "key_id": settings.RAZORPAY_KEY_ID,
+        "checkout_config_id": checkout_config_id() or None,
+        "name": "LalganjEats",
+        "description": f"Clear collected cash #{remit.id}",
+        "prefill": {
+            "name": (partner.full_name or "Partner")[:60],
+            "email": (partner.email or "")[:100],
+            "contact": (partner.phone or "")[:15],
+        },
     }
 
 
@@ -160,40 +160,57 @@ def _attach_orders_to_paid_remittance(db: Session, remit: CashRemittance) -> Non
         o.cash_remittance_id = remit.id
 
 
-def mark_remittance_paid(db: Session, params: dict) -> CashRemittance | None:
-    if not verify_response_hash(params):
-        return None
-    status = str(params.get("status") or "").lower()
-    if status not in ("success", "captured"):
-        return None
-    if str(params.get("udf3") or "") != "cash_remit":
-        return None
+def mark_remittance_paid_razorpay(
+    db: Session,
+    *,
+    remittance_id: int,
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str,
+    partner_id: int | None = None,
+) -> CashRemittance:
+    if not verify_payment_signature(
+        razorpay_order_id, razorpay_payment_id, razorpay_signature
+    ):
+        raise HTTPException(400, "Invalid payment signature")
 
-    remit_id = None
-    try:
-        remit_id = int(params.get("udf1") or 0) or None
-    except (TypeError, ValueError):
-        remit_id = None
-
-    remit = None
-    if remit_id:
-        remit = db.query(CashRemittance).filter(CashRemittance.id == remit_id).first()
+    remit = db.query(CashRemittance).filter(CashRemittance.id == remittance_id).first()
     if not remit:
-        txnid = str(params.get("txnid") or "")
-        if txnid:
-            remit = (
-                db.query(CashRemittance)
-                .filter(CashRemittance.payu_txnid == txnid)
-                .first()
-            )
-    if not remit:
-        return None
+        raise HTTPException(404, "Remittance not found")
+    if partner_id is not None and remit.delivery_partner_id != partner_id:
+        raise HTTPException(403, "Not your remittance")
+    if remit.razorpay_order_id and remit.razorpay_order_id != razorpay_order_id:
+        raise HTTPException(400, "Order id mismatch")
 
     if remit.status == "paid":
         return remit
 
     remit.status = "paid"
-    remit.payu_mihpayid = str(params.get("mihpayid") or "") or remit.payu_mihpayid
+    remit.razorpay_order_id = razorpay_order_id
+    remit.razorpay_payment_id = razorpay_payment_id
+    remit.paid_at = datetime.now(timezone.utc)
+    _attach_orders_to_paid_remittance(db, remit)
+    db.commit()
+    db.refresh(remit)
+    return remit
+
+
+def mark_remittance_paid_from_webhook(
+    db: Session,
+    *,
+    remittance_id: int,
+    razorpay_payment_id: str,
+    razorpay_order_id: str | None = None,
+) -> CashRemittance | None:
+    remit = db.query(CashRemittance).filter(CashRemittance.id == remittance_id).first()
+    if not remit:
+        return None
+    if remit.status == "paid":
+        return remit
+    remit.status = "paid"
+    if razorpay_order_id:
+        remit.razorpay_order_id = razorpay_order_id
+    remit.razorpay_payment_id = razorpay_payment_id
     remit.paid_at = datetime.now(timezone.utc)
     _attach_orders_to_paid_remittance(db, remit)
     db.commit()
@@ -201,7 +218,7 @@ def mark_remittance_paid(db: Session, params: dict) -> CashRemittance | None:
 
 
 def release_pending_remittance_orders(db: Session, remit: CashRemittance) -> None:
-    """On PayU failure, unlink orders so cash stays on hand / can be remitted again."""
+    """On payment failure/dismiss, unlink orders so cash stays on hand."""
     if remit.status == "paid":
         return
     orders = (

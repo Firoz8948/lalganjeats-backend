@@ -264,12 +264,12 @@ class CollectionPaymentBody(BaseModel):
     online_amount: float
 
 
-# ── PayU-hosted UPI/QR doorstep collection ─────────────────
-# The DP taps "Show UPI QR" → we generate a PayU txnid and a short URL that
+# ── Razorpay Payment Link doorstep collection ──────────────
+# The DP taps "Show UPI QR" → we create a Razorpay Payment Link and return
+# its short_url for the QR. Customer pays → webhook / status poll marks paid.
 # encodes into a QR the customer scans.  Their phone opens the URL → we render
-# an auto-submit form to PayU → customer pays with any UPI app → PayU calls our
-# surl → we mark `collection_online_paid_at`.  Meanwhile the DP app polls
-# /collect-online/status and unlocks "Confirm Delivered" when paid=true.
+# Razorpay Payment Link → customer scans QR (short_url) → webhook marks
+# `collection_online_paid_at`. DP app polls /collect-online/status.
 @router.post("/orders/{order_id}/collect-online/initiate")
 def initiate_online_collection(
     order_id: int,
@@ -277,14 +277,13 @@ def initiate_online_collection(
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
-    from uuid import uuid4
+    import time
 
-    from app.core.config import settings
-    from app.core.payu_service import payu_configured
+    from app.core.razorpay_service import create_payment_link, razorpay_configured
 
     if body.online_amount <= 0:
         raise HTTPException(400, "online_amount must be greater than 0")
-    if not payu_configured():
+    if not razorpay_configured():
         raise HTTPException(503, "Online payments are not configured")
 
     order = db.query(Order).filter(
@@ -302,26 +301,39 @@ def initiate_online_collection(
     if amount > due + 0.01:
         raise HTTPException(400, "online_amount exceeds order total")
 
-    # Fresh attempt: generate new txnid so a previously abandoned QR can't
-    # be used to spoof this order.
-    txnid = f"col{order.id}{uuid4().hex[:10]}".upper()[:40]
-    order.collection_txnid = txnid
+    expire_by = int(time.time()) + 15 * 60
+    customer = order.customer
+    link = create_payment_link(
+        amount_rupees=amount,
+        description=f"LalganjEats order {order.order_number}",
+        notes={
+            "flow": "collect_at_door",
+            "order_id": str(order.id),
+            "order_number": order.order_number or "",
+        },
+        customer={
+            "name": ((customer.full_name if customer else None) or "Customer")[:50],
+            "contact": ((customer.phone if customer else None) or "")[:15],
+        } if customer and (customer.phone or customer.full_name) else None,
+        expire_by=expire_by,
+    )
+    plink_id = str(link.get("id") or "")
+    short_url = str(link.get("short_url") or "")
+    if not plink_id or not short_url:
+        raise HTTPException(502, "Could not create Razorpay payment link")
+
+    order.collection_txnid = plink_id
     order.collection_amount = amount
     order.collection_initiated_at = datetime.utcnow()
     order.collection_online_paid_at = None
     db.commit()
 
-    api_base = (settings.API_PUBLIC_URL or "").rstrip("/")
-    if not api_base:
-        raise HTTPException(503, "API_PUBLIC_URL is not configured")
-
-    qr_url = f"{api_base}/api/v1/payment/collect/{txnid}"
     expires_at = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
     return {
-        "txnid": txnid,
+        "txnid": plink_id,
         "amount": amount,
-        "qr_url": qr_url,
-        "payment_page_url": qr_url,
+        "qr_url": short_url,
+        "payment_page_url": short_url,
         "expires_at": expires_at,
     }
 
@@ -341,6 +353,28 @@ def get_online_collection_status(
         raise HTTPException(404, "Order not found")
 
     paid = bool(order.collection_online_paid_at) and (order.collection_txnid or "") == txnid
+
+    # Fallback: poll Razorpay Payment Link if webhook is delayed.
+    if not paid and txnid and (order.collection_txnid or "") == txnid:
+        try:
+            from app.core.razorpay_service import fetch_payment_link
+
+            link = fetch_payment_link(txnid)
+            status = str(link.get("status") or "").lower()
+            if status == "paid":
+                payments = link.get("payments") or []
+                pay_id = None
+                if payments and isinstance(payments[0], dict):
+                    pay_id = payments[0].get("payment_id") or payments[0].get("id")
+                order.collection_online_paid_at = datetime.utcnow()
+                order.online_collected = float(order.collection_amount or 0)
+                if pay_id:
+                    order.razorpay_payment_id = str(pay_id)
+                db.commit()
+                paid = True
+        except Exception:
+            pass
+
     return {
         "txnid": txnid,
         "paid": paid,
@@ -353,7 +387,7 @@ class CompleteBody(BaseModel):
     otp: str
     cash_amount: float = 0
     online_amount: float = 0
-    # PayU-hosted UPI/QR collection reference. Required when online_amount > 0.
+    # Razorpay Payment Link id (plink_…). Required when online_amount > 0.
     collection_txnid: str | None = None
 
 
@@ -396,7 +430,7 @@ def complete_delivery(
             if not body.collection_txnid:
                 raise HTTPException(
                     400,
-                    "Online collection requires a verified PayU collection. "
+                    "Online collection requires a verified Razorpay payment. "
                     "Show the UPI QR to the customer first and wait for it to be paid.",
                 )
             if (order.collection_txnid or "") != body.collection_txnid:
@@ -404,7 +438,7 @@ def complete_delivery(
             if not order.collection_online_paid_at:
                 raise HTTPException(
                     400,
-                    "PayU collection has not been confirmed yet",
+                    "Razorpay collection has not been confirmed yet",
                 )
             expected = round(float(order.collection_amount or 0), 2)
             if abs(expected - online) > 0.05:

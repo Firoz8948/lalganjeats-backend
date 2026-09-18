@@ -21,6 +21,7 @@ STATIC_PATHS: tuple[tuple[str, str, str], ...] = (
     ("/legal/terms", "monthly", "0.4"),
     ("/legal/privacy", "monthly", "0.4"),
     ("/legal/refund", "monthly", "0.4"),
+    ("/legal/delete-account", "monthly", "0.3"),
 )
 
 

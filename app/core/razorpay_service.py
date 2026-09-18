@@ -1,7 +1,7 @@
 # backend/app/core/razorpay_service.py
 import hashlib
 import hmac
-from typing import Optional
+from typing import Any, Optional
 
 from app.core.config import settings
 
@@ -26,16 +26,68 @@ def razorpay_configured() -> bool:
     return bool(settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET)
 
 
-def create_order(amount_rupees: float, receipt: str, notes: dict | None = None) -> dict:
+def checkout_config_id() -> str:
+    return (settings.RAZORPAY_CHECKOUT_CONFIG_ID or "").strip()
+
+
+def create_order(
+    amount_rupees: float,
+    receipt: str,
+    notes: dict | None = None,
+    *,
+    config_id: str | None = None,
+) -> dict:
     client = _get_client()
     if not client:
         raise RuntimeError("Razorpay is not configured")
-    return client.order.create({
+    payload: dict[str, Any] = {
         "amount": int(round(amount_rupees * 100)),
         "currency": "INR",
-        "receipt": receipt,
+        "receipt": (receipt or "")[:40],
         "notes": notes or {},
-    })
+    }
+    cfg = (config_id if config_id is not None else checkout_config_id()).strip()
+    if cfg:
+        payload["checkout_config_id"] = cfg
+    return client.order.create(payload)
+
+
+def create_payment_link(
+    amount_rupees: float,
+    *,
+    description: str,
+    notes: dict | None = None,
+    customer: dict | None = None,
+    expire_by: int | None = None,
+) -> dict:
+    """Create a Razorpay Payment Link (short_url works as doorstep QR target)."""
+    client = _get_client()
+    if not client:
+        raise RuntimeError("Razorpay is not configured")
+    payload: dict[str, Any] = {
+        "amount": int(round(amount_rupees * 100)),
+        "currency": "INR",
+        "accept_partial": False,
+        "description": (description or "LalganjEats payment")[:2048],
+        "notes": notes or {},
+        "notify": {"sms": False, "email": False},
+        "reminder_enable": False,
+    }
+    if customer:
+        payload["customer"] = customer
+    if expire_by:
+        payload["expire_by"] = expire_by
+    cfg = checkout_config_id()
+    if cfg:
+        payload["options"] = {"checkout": {"checkout_config_id": cfg}}
+    return client.payment_link.create(payload)
+
+
+def fetch_payment_link(payment_link_id: str) -> dict:
+    client = _get_client()
+    if not client:
+        raise RuntimeError("Razorpay is not configured")
+    return client.payment_link.fetch(payment_link_id)
 
 
 def verify_payment_signature(

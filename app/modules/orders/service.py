@@ -298,8 +298,8 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
 
     payment_status = "pending"
     if payload.payment_method == "online":
-        from app.core.payu_service import payu_configured
-        if not payu_configured():
+        from app.core.razorpay_service import razorpay_configured
+        if not razorpay_configured():
             raise HTTPException(
                 503,
                 "Online payments are not configured. Please use cash on delivery.",

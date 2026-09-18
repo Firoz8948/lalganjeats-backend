@@ -92,8 +92,9 @@ def run_auto_migrations():
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_flat_off NUMERIC(10,2);",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_free_delivery BOOLEAN DEFAULT FALSE;",
 
-        # Doorstep online (UPI/QR at door) collection tracking via PayU.
-        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_txnid VARCHAR(64);",
+        # Doorstep online (UPI/QR at door) collection tracking via Razorpay Payment Link.
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_txnid VARCHAR(100);",
+        "ALTER TABLE orders ALTER COLUMN collection_txnid TYPE VARCHAR(100);",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_amount NUMERIC(10,2);",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_initiated_at TIMESTAMPTZ;",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_online_paid_at TIMESTAMPTZ;",
@@ -128,8 +129,11 @@ def run_auto_migrations():
         "ALTER TABLE promo_code_usages ADD COLUMN IF NOT EXISTS device_id VARCHAR(64);",
         "CREATE INDEX IF NOT EXISTS ix_promo_code_usages_device_id ON promo_code_usages(device_id);",
 
-        # Cash remittance: keep order ids so cash on hand is not zeroed until PayU is paid.
+        # Cash remittance: keep order ids so cash on hand is not zeroed until paid.
         "ALTER TABLE cash_remittances ADD COLUMN IF NOT EXISTS order_ids TEXT;",
+        "ALTER TABLE cash_remittances ADD COLUMN IF NOT EXISTS razorpay_order_id VARCHAR(100);",
+        "ALTER TABLE cash_remittances ADD COLUMN IF NOT EXISTS razorpay_payment_id VARCHAR(100);",
+        "CREATE INDEX IF NOT EXISTS ix_cash_remittances_rz_order ON cash_remittances(razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;",
 
         # Delivery zones: half-open km ranges [initial including, final excluding).
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS initial_km NUMERIC(8,2);",

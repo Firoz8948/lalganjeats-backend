@@ -84,6 +84,12 @@ class RazorpayOrderResponse(BaseModel):
     amount: float
     currency: str
     key_id: str
+    checkout_config_id: Optional[str] = None
+    name: str = "LalganjEats"
+    description: str = ""
+    order_id: Optional[int] = None
+    order_number: Optional[str] = None
+    prefill: Optional[dict] = None
 
 
 class PaymentVerify(BaseModel):
@@ -91,6 +97,13 @@ class PaymentVerify(BaseModel):
     razorpay_payment_id: str
     razorpay_signature: str
     order_id: int
+
+
+class RemittanceVerify(BaseModel):
+    remittance_id: int
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
 
 
 class SplitPreview(BaseModel):
