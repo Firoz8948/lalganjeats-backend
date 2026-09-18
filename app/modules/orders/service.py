@@ -305,6 +305,42 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
                 "Online payments are not configured. Please use cash on delivery.",
             )
 
+    # Validate promocode BEFORE creating the order so a failed coupon never
+    # leaves a pending order behind (and the customer gets a clear message).
+    promo_code_raw = (payload.promo_code or "").strip()
+    if promo_code_raw:
+        from app.modules.promocodes.schemas import PromoValidateRequest
+        from app.modules.promocodes.service import validate_promo
+
+        precheck = validate_promo(
+            db,
+            PromoValidateRequest(
+                code=promo_code_raw,
+                client_channel=getattr(payload, "client_channel", None) or "web",
+                subtotal=Decimal(str(display_total)),
+                delivery_fee=Decimal(str(split.delivery_charge)),
+                device_id=getattr(payload, "device_id", None),
+                restaurant_id=restaurant.id,
+            ),
+            tenant_id=restaurant.tenant_id,
+            current_user=customer,
+            device_id=getattr(payload, "device_id", None),
+        )
+        if not precheck.valid:
+            raise HTTPException(
+                400,
+                detail={
+                    "reason": precheck.reason,
+                    "message": precheck.message,
+                    "download_required": bool(precheck.download_required),
+                    "min_cart_value": (
+                        float(precheck.min_cart_value)
+                        if precheck.min_cart_value is not None
+                        else None
+                    ),
+                },
+            )
+
     order = Order(
         order_number=_next_order_number(db),
         tenant_id=restaurant.tenant_id,

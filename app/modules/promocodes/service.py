@@ -499,7 +499,9 @@ def validate_promo(
         )
 
     _maybe_auto_deactivate(db, promo)
-    db.commit()
+    # Never commit here — place_order may have a pending Order in this session.
+    # A commit would permanently save that order even when promo validation fails.
+    db.flush()
 
     if promo.channel == "mobile_app" and payload.client_channel == "web":
         return PromoValidateResponse(
@@ -563,11 +565,16 @@ def validate_promo(
         and payload.subtotal is not None
         and Decimal(str(payload.subtotal)) < Decimal(str(min_cart))
     ):
-        amount = _format_rupees(min_cart)
+        min_cart_d = Decimal(str(min_cart))
+        subtotal_d = Decimal(str(payload.subtotal))
+        shortfall = (min_cart_d - subtotal_d).quantize(Decimal("0.01"))
         return PromoValidateResponse(
             valid=False,
             reason="min_cart",
-            message=f"Order applicable above {amount} Rs",
+            message=(
+                f"Add items worth ₹{_format_rupees(shortfall)} more to use this "
+                f"coupon (min cart ₹{_format_rupees(min_cart_d)})."
+            ),
             code=promo.code,
             channel=promo.channel,
             discount_type=_discount_type(promo),
