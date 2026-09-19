@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.core.security import hash_password, create_access_token
 from app.modules.users.models import User
 from app.modules.superadmin.models import Tenant, DeliveryException, DeliveryZone
+from app.core.schedule_hours import format_hhmm, parse_hhmm
 from app.modules.superadmin import repository as repo
 from app.modules.superadmin.schemas import (
     TenantCreateRequest,
@@ -21,6 +22,10 @@ from app.modules.superadmin.schemas import (
     TenantCentreOut,
     ImpersonateResponse,
 )
+
+
+def format_hhmm_safe(value) -> str | None:
+    return format_hhmm(value)
 
 
 def _slugify(name: str) -> str:
@@ -313,6 +318,12 @@ def create_zone(
     _assert_zone_range_free(
         db, tenant.id, payload.initial_km, payload.final_km
     )
+    always = bool(payload.always_available)
+    try:
+        opening = None if always else parse_hhmm(payload.opening_time)
+        closing = None if always else parse_hhmm(payload.closing_time)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     zone = DeliveryZone(
         tenant_id=tenant.id,
         name=payload.name.strip(),
@@ -324,6 +335,9 @@ def create_zone(
         delivery_partner_rate=payload.delivery_partner_rate if payload.delivery_partner_rate is not None else payload.rate,
         sort_order=payload.sort_order,
         is_active=True,
+        always_available=always,
+        opening_time=opening,
+        closing_time=closing,
     )
     try:
         repo.create_zone(db, zone)
@@ -362,6 +376,29 @@ def update_zone(
         data["initial_km"] = initial
     if "final_km" not in data:
         data["final_km"] = final
+
+    always = data.get("always_available", zone.always_available)
+    if "always_available" in data or "opening_time" in data or "closing_time" in data:
+        if always:
+            data["always_available"] = True
+            data["opening_time"] = None
+            data["closing_time"] = None
+            data["schedule_activated_on"] = None
+        else:
+            opening_raw = data.get("opening_time", format_hhmm_safe(zone.opening_time))
+            closing_raw = data.get("closing_time", format_hhmm_safe(zone.closing_time))
+            if not opening_raw or not closing_raw:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Opening and closing time are required when Always available is off",
+                )
+            try:
+                data["opening_time"] = parse_hhmm(opening_raw)
+                data["closing_time"] = parse_hhmm(closing_raw)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            data["always_available"] = False
+
     for key, value in data.items():
         setattr(zone, key, value)
     db.commit()

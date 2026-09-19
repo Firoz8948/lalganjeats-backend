@@ -1,4 +1,8 @@
 # backend/app/main.py
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -60,7 +64,36 @@ Base.metadata.create_all(bind=engine)
 run_auto_migrations()
 ensure_upload_dirs()
 
-app = FastAPI(title="LalganjEats API", version="1.0.0")
+logger = logging.getLogger("lalganjeats")
+
+
+async def _schedule_loop():
+    from app.core.scheduler import run_schedule_tick
+
+    # First tick shortly after boot, then every minute.
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(run_schedule_tick)
+        except Exception:
+            logger.exception("schedule loop error")
+        await asyncio.sleep(60)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task = asyncio.create_task(_schedule_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="LalganjEats API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

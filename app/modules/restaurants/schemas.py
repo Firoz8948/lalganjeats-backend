@@ -15,6 +15,9 @@ class RestaurantPublicResponse(BaseModel):
     delivery_charge: float = 0
     min_order: str = "₹100"
     is_open: bool = True
+    opening_time: str | None = None
+    closing_time: str | None = None
+    opens_at_label: str | None = None
     offer_text: str | None = None
     image_emoji: str = "🍛"
     image_bg: str = "#FFF3EF"
@@ -53,6 +56,8 @@ class RestaurantCreateRequest(BaseModel):
     is_approved: bool = True
     show_packing_charge: bool = False
     packing_charge: Optional[Decimal] = None
+    opening_time: str | None = "10:00"
+    closing_time: str | None = "22:00"
 
 
 class RestaurantUpdateRequest(BaseModel):
@@ -77,3 +82,5 @@ class RestaurantUpdateRequest(BaseModel):
     business_category_id: Optional[int] = None
     show_packing_charge: Optional[bool] = None
     packing_charge: Optional[Decimal] = None
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None

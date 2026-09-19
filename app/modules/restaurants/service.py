@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
 from app.core.maps import haversine_km, distance_and_drive_minutes
+from app.core.schedule_hours import format_hhmm, format_opens_at, parse_hhmm
 from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
@@ -110,6 +111,13 @@ def _to_public(
         slug=getattr(restaurant, "slug", None),
         cuisine=restaurant.description or "",
         is_open=restaurant.is_open,
+        opening_time=format_hhmm(getattr(restaurant, "opening_time", None)),
+        closing_time=format_hhmm(getattr(restaurant, "closing_time", None)),
+        opens_at_label=(
+            None
+            if restaurant.is_open
+            else format_opens_at(getattr(restaurant, "opening_time", None))
+        ),
         logo_url=restaurant.logo_url,
         list_banner_url=getattr(restaurant, "list_banner_url", None),
         banner_url=getattr(restaurant, "banner_url", None),
@@ -383,6 +391,12 @@ def create_restaurant(
     base_slug = slugify_restaurant_name(payload.name)
     unique_slug = ensure_unique_restaurant_slug(db, base_slug)
 
+    try:
+        opening = parse_hhmm(getattr(payload, "opening_time", None) or "10:00")
+        closing = parse_hhmm(getattr(payload, "closing_time", None) or "22:00")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     restaurant = Restaurant(
         owner_id=owner.id,
         tenant_id=tenant_id,
@@ -405,6 +419,8 @@ def create_restaurant(
         is_active=True,
         show_packing_charge=bool(payload.show_packing_charge),
         packing_charge=payload.packing_charge if payload.packing_charge is not None else 0,
+        opening_time=opening,
+        closing_time=closing,
     )
     db.add(restaurant)
     db.commit()
@@ -443,6 +459,8 @@ def _admin_row(r: Restaurant) -> dict:
         "is_active": r.is_active,
         "show_packing_charge": bool(getattr(r, "show_packing_charge", False)),
         "packing_charge": float(getattr(r, "packing_charge", 0) or 0),
+        "opening_time": format_hhmm(getattr(r, "opening_time", None)),
+        "closing_time": format_hhmm(getattr(r, "closing_time", None)),
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 
@@ -491,6 +509,16 @@ def update_restaurant(
             raise HTTPException(status_code=400, detail="Invalid business category")
 
     name_changed = "name" in data and data["name"] != restaurant.name
+    if "opening_time" in data:
+        try:
+            data["opening_time"] = parse_hhmm(data["opening_time"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if "closing_time" in data:
+        try:
+            data["closing_time"] = parse_hhmm(data["closing_time"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     for key, value in data.items():
         setattr(restaurant, key, value)
 

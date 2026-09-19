@@ -1,7 +1,7 @@
 # backend/app/modules/restaurants/models.py
 from sqlalchemy import (
     Column, Integer, String, Boolean,
-    Text, DateTime, DECIMAL, Time, ForeignKey, Numeric, UniqueConstraint
+    Text, DateTime, Date, DECIMAL, Time, ForeignKey, Numeric, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -88,6 +88,8 @@ class Restaurant(Base):
     packing_charge = Column(DECIMAL(10, 2), default=0)
     opening_time  = Column(Time)
     closing_time  = Column(Time)
+    # Date the schedule last auto-opened this restaurant (manual mid-day close sticks until next day).
+    schedule_opened_on = Column(Date, nullable=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
 

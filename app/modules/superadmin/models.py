@@ -1,6 +1,6 @@
 # backend/app/modules/superadmin/models.py
 from sqlalchemy import (
-    Column, Integer, String, Boolean, Text, DateTime,
+    Column, Integer, String, Boolean, Text, DateTime, Date, Time,
     ForeignKey, Numeric, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -85,6 +85,11 @@ class DeliveryZone(Base):
     delivery_partner_rate = Column(Numeric(10, 2), nullable=True) # Rs flat or Rs/km paid to rider
     sort_order    = Column(Integer, default=0)
     is_active     = Column(Boolean, default=True)
+    # When True, zone stays usable 24/7 (no opening/closing schedule).
+    always_available = Column(Boolean, default=True)
+    opening_time  = Column(Time, nullable=True)
+    closing_time  = Column(Time, nullable=True)
+    schedule_activated_on = Column(Date, nullable=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -96,6 +96,9 @@ class ZoneOut(BaseModel):
     delivery_partner_rate: Optional[Decimal] = None
     sort_order: int
     is_active: bool
+    always_available: bool = True
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -105,6 +108,12 @@ class ZoneOut(BaseModel):
             self.initial_km = Decimal("0")
         if self.final_km is None:
             self.final_km = self.radius_km
+        # Serialize Time → HH:MM when loaded from ORM
+        from datetime import time as time_cls
+        for field in ("opening_time", "closing_time"):
+            value = getattr(self, field)
+            if isinstance(value, time_cls):
+                setattr(self, field, value.strftime("%H:%M"))
         return self
 
 
@@ -169,12 +178,19 @@ class ZoneCreateRequest(BaseModel):
     rate: Decimal = Field(..., ge=0)
     delivery_partner_rate: Optional[Decimal] = Field(None, ge=0)
     sort_order: int = 0
+    always_available: bool = True
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
 
     @model_validator(mode="after")
     def final_after_initial(self):
         if self.final_km <= self.initial_km:
             raise ValueError(
                 "Final range must be greater than initial range"
+            )
+        if not self.always_available and (not self.opening_time or not self.closing_time):
+            raise ValueError(
+                "Opening and closing time are required when Always available is off"
             )
         return self
 
@@ -188,6 +204,9 @@ class ZoneUpdateRequest(BaseModel):
     delivery_partner_rate: Optional[Decimal] = Field(None, ge=0)
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+    always_available: Optional[bool] = None
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
 
 
 class DeliveryExceptionCreateRequest(BaseModel):
