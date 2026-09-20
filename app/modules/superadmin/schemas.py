@@ -102,18 +102,25 @@ class ZoneOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("opening_time", "closing_time", mode="before")
+    @classmethod
+    def serialize_zone_times(cls, value):
+        # ORM stores TIME; API returns "HH:MM" strings
+        from datetime import time as time_cls
+        from app.core.schedule_hours import format_hhmm
+
+        if value is None or value == "":
+            return None
+        if isinstance(value, time_cls):
+            return format_hhmm(value)
+        return value
+
     @model_validator(mode="after")
     def fill_range_from_radius(self):
         if self.initial_km is None:
             self.initial_km = Decimal("0")
         if self.final_km is None:
             self.final_km = self.radius_km
-        # Serialize Time → HH:MM when loaded from ORM
-        from datetime import time as time_cls
-        for field in ("opening_time", "closing_time"):
-            value = getattr(self, field)
-            if isinstance(value, time_cls):
-                setattr(self, field, value.strftime("%H:%M"))
         return self
 
 
