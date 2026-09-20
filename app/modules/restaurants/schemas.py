@@ -1,6 +1,39 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from decimal import Decimal
 from typing import Optional
+
+
+class CardSlide(BaseModel):
+    image_url: str
+    text: Optional[str] = None
+
+
+def normalize_card_slides(raw) -> list[dict]:
+    """Keep at most 5 slides that have a non-empty image_url."""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for item in raw[:5]:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("image_url") or "").strip()
+        if not url:
+            continue
+        text = str(item.get("text") or "").strip() or None
+        out.append({"image_url": url, "text": text})
+    return out
+
+
+def card_slides_for_public(restaurant) -> list[dict]:
+    slides = normalize_card_slides(getattr(restaurant, "card_slides", None))
+    if slides:
+        return slides
+    banner = getattr(restaurant, "list_banner_url", None)
+    if banner:
+        return [{"image_url": banner, "text": None}]
+    return []
 
 
 class RestaurantPublicResponse(BaseModel):
@@ -23,6 +56,7 @@ class RestaurantPublicResponse(BaseModel):
     image_bg: str = "#FFF3EF"
     logo_url: str | None = None
     list_banner_url: str | None = None
+    card_slides: list[CardSlide] = Field(default_factory=list)
     banner_url: str | None = None
     banner_mobile_url: str | None = None
     address: str | None = None
@@ -46,6 +80,7 @@ class RestaurantCreateRequest(BaseModel):
     longitude: Optional[Decimal] = None
     logo_url: str | None = None
     list_banner_url: str | None = None
+    card_slides: list[CardSlide] | None = None
     banner_url: str | None = None
     banner_mobile_url: str | None = None
     owner_phone: str = Field(..., min_length=10, max_length=15)
@@ -59,6 +94,13 @@ class RestaurantCreateRequest(BaseModel):
     opening_time: str | None = "10:00"
     closing_time: str | None = "22:00"
 
+    @field_validator("card_slides", mode="before")
+    @classmethod
+    def _norm_create_slides(cls, value):
+        if value is None:
+            return None
+        return normalize_card_slides(value)
+
 
 class RestaurantUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=150)
@@ -71,6 +113,7 @@ class RestaurantUpdateRequest(BaseModel):
     longitude: Optional[Decimal] = None
     logo_url: Optional[str] = None
     list_banner_url: Optional[str] = None
+    card_slides: Optional[list[CardSlide]] = None
     banner_url: Optional[str] = None
     banner_mobile_url: Optional[str] = None
     is_open: Optional[bool] = None
@@ -84,3 +127,10 @@ class RestaurantUpdateRequest(BaseModel):
     packing_charge: Optional[Decimal] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
+
+    @field_validator("card_slides", mode="before")
+    @classmethod
+    def _norm_update_slides(cls, value):
+        if value is None:
+            return None
+        return normalize_card_slides(value)

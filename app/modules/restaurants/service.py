@@ -7,7 +7,12 @@ from app.core.maps import haversine_km, distance_and_drive_minutes
 from app.core.schedule_hours import format_hhmm, format_opens_at, note_manual_shop_state, parse_hhmm
 from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
-from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
+from app.modules.restaurants.schemas import (
+    RestaurantPublicResponse,
+    RestaurantCreateRequest,
+    card_slides_for_public,
+    normalize_card_slides,
+)
 from app.modules.payments.breakdown import packing_charge_for_restaurant
 from app.modules.restaurants.service_area import (
     delivery_charge_for_distance,
@@ -120,6 +125,7 @@ def _to_public(
         ),
         logo_url=restaurant.logo_url,
         list_banner_url=getattr(restaurant, "list_banner_url", None),
+        card_slides=card_slides_for_public(restaurant),
         banner_url=getattr(restaurant, "banner_url", None),
         banner_mobile_url=getattr(restaurant, "banner_mobile_url", None),
         address=restaurant.address,
@@ -397,6 +403,13 @@ def create_restaurant(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    slides = normalize_card_slides(getattr(payload, "card_slides", None))
+    list_banner = payload.list_banner_url
+    if slides:
+        list_banner = slides[0]["image_url"]
+    elif list_banner:
+        slides = [{"image_url": list_banner, "text": None}]
+
     restaurant = Restaurant(
         owner_id=owner.id,
         tenant_id=tenant_id,
@@ -411,7 +424,8 @@ def create_restaurant(
         latitude=payload.latitude,
         longitude=payload.longitude,
         logo_url=payload.logo_url,
-        list_banner_url=payload.list_banner_url,
+        list_banner_url=list_banner,
+        card_slides=slides or None,
         banner_url=payload.banner_url,
         banner_mobile_url=payload.banner_mobile_url,
         is_open=True,
@@ -448,6 +462,7 @@ def _admin_row(r: Restaurant) -> dict:
         "longitude": float(lng) if lng is not None else None,
         "logo_url": r.logo_url,
         "list_banner_url": getattr(r, "list_banner_url", None),
+        "card_slides": card_slides_for_public(r),
         "banner_url": getattr(r, "banner_url", None),
         "banner_mobile_url": getattr(r, "banner_mobile_url", None),
         "business_category_id": r.business_category_id,
@@ -519,6 +534,14 @@ def update_restaurant(
             data["closing_time"] = parse_hhmm(data["closing_time"])
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if "card_slides" in data:
+        slides = normalize_card_slides(data.get("card_slides"))
+        data["card_slides"] = slides
+        # Keep list_banner_url in sync with the first slide for older clients.
+        if slides:
+            data["list_banner_url"] = slides[0]["image_url"]
+        else:
+            data["list_banner_url"] = None
     for key, value in data.items():
         setattr(restaurant, key, value)
 

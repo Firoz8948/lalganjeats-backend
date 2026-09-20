@@ -1,7 +1,7 @@
 # backend/app/modules/restaurants/models.py
 from sqlalchemy import (
     Column, Integer, String, Boolean,
-    Text, DateTime, Date, DECIMAL, Time, ForeignKey, Numeric, UniqueConstraint
+    Text, DateTime, Date, DECIMAL, Time, ForeignKey, Numeric, UniqueConstraint, JSON
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -78,7 +78,9 @@ class Restaurant(Base):
     latitude      = Column(Numeric(10, 8), nullable=True)
     longitude     = Column(Numeric(11, 8), nullable=True)
     logo_url      = Column(Text)
-    list_banner_url = Column(Text)   # card cover on home / restaurants list
+    list_banner_url = Column(Text)   # card cover fallback / first slide sync
+    # Up to 5 card slider slides: [{ "image_url": "...", "text": "..." }]
+    card_slides   = Column(JSON, nullable=True)
     banner_url    = Column(Text)     # desktop hero above menu items
     banner_mobile_url = Column(Text) # mobile hero above menu items
     is_open       = Column(Boolean, default=True)

@@ -143,6 +143,7 @@ def run_auto_migrations():
         "ALTER TABLE catalog_subcategories ADD COLUMN IF NOT EXISTS image_url TEXT;",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS schedule_opened_on DATE;",
         "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS schedule_closed_on DATE;",
+        "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS card_slides JSONB;",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS always_available BOOLEAN DEFAULT TRUE;",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS opening_time TIME;",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS closing_time TIME;",
