@@ -88,8 +88,9 @@ class Restaurant(Base):
     packing_charge = Column(DECIMAL(10, 2), default=0)
     opening_time  = Column(Time)
     closing_time  = Column(Time)
-    # Date the schedule last auto-opened this restaurant (manual mid-day close sticks until next day).
+    # Schedule edge stamps: manual open/close sticks between auto open and auto close.
     schedule_opened_on = Column(Date, nullable=True)
+    schedule_closed_on = Column(Date, nullable=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
 

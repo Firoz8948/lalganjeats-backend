@@ -27,17 +27,19 @@ def apply_restaurant_schedules(db: Session, now=None) -> int:
         .all()
     )
     for row in rows:
-        new_on, new_date, did = apply_entity_schedule(
+        new_on, new_on_date, new_off_date, did = apply_entity_schedule(
             is_on=bool(row.is_open),
             opening=row.opening_time,
             closing=row.closing_time,
             schedule_on_date=getattr(row, "schedule_opened_on", None),
+            schedule_off_date=getattr(row, "schedule_closed_on", None),
             now=now,
             always_on=False,
         )
         if did:
             row.is_open = new_on
-            row.schedule_opened_on = new_date
+            row.schedule_opened_on = new_on_date
+            row.schedule_closed_on = new_off_date
             changed += 1
     return changed
 
@@ -52,17 +54,19 @@ def apply_zone_schedules(db: Session, now=None) -> int:
         .all()
     )
     for row in rows:
-        new_on, new_date, did = apply_entity_schedule(
+        new_on, new_on_date, new_off_date, did = apply_entity_schedule(
             is_on=bool(row.is_active),
             opening=row.opening_time,
             closing=row.closing_time,
             schedule_on_date=getattr(row, "schedule_activated_on", None),
+            schedule_off_date=getattr(row, "schedule_deactivated_on", None),
             now=now,
             always_on=bool(row.always_available),
         )
         if did:
             row.is_active = new_on
-            row.schedule_activated_on = new_date
+            row.schedule_activated_on = new_on_date
+            row.schedule_deactivated_on = new_off_date
             changed += 1
     return changed
 

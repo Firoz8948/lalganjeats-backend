@@ -169,8 +169,19 @@ def toggle_open_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_restaurant_owner)
 ):
+    from app.core.schedule_hours import note_manual_shop_state
+
     restaurant = _get_restaurant(db, current_user)
     restaurant.is_open = not restaurant.is_open
+    on_date, off_date = note_manual_shop_state(
+        is_open=bool(restaurant.is_open),
+        opening=getattr(restaurant, "opening_time", None),
+        closing=getattr(restaurant, "closing_time", None),
+        schedule_on_date=getattr(restaurant, "schedule_opened_on", None),
+        schedule_off_date=getattr(restaurant, "schedule_closed_on", None),
+    )
+    restaurant.schedule_opened_on = on_date
+    restaurant.schedule_closed_on = off_date
     db.commit()
     return {"is_open": restaurant.is_open}
 

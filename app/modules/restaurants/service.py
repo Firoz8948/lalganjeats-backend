@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
 from app.core.maps import haversine_km, distance_and_drive_minutes
-from app.core.schedule_hours import format_hhmm, format_opens_at, parse_hhmm
+from app.core.schedule_hours import format_hhmm, format_opens_at, note_manual_shop_state, parse_hhmm
 from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import RestaurantPublicResponse, RestaurantCreateRequest
@@ -521,6 +521,17 @@ def update_restaurant(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     for key, value in data.items():
         setattr(restaurant, key, value)
+
+    if "is_open" in data:
+        on_date, off_date = note_manual_shop_state(
+            is_open=bool(restaurant.is_open),
+            opening=getattr(restaurant, "opening_time", None),
+            closing=getattr(restaurant, "closing_time", None),
+            schedule_on_date=getattr(restaurant, "schedule_opened_on", None),
+            schedule_off_date=getattr(restaurant, "schedule_closed_on", None),
+        )
+        restaurant.schedule_opened_on = on_date
+        restaurant.schedule_closed_on = off_date
 
     if owner_name is not None and restaurant.owner:
         restaurant.owner.full_name = owner_name

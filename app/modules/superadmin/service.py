@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from app.core.security import hash_password, create_access_token
 from app.modules.users.models import User
 from app.modules.superadmin.models import Tenant, DeliveryException, DeliveryZone
-from app.core.schedule_hours import format_hhmm, parse_hhmm
+from app.core.schedule_hours import format_hhmm, note_manual_shop_state, parse_hhmm
 from app.modules.superadmin import repository as repo
 from app.modules.superadmin.schemas import (
     TenantCreateRequest,
@@ -401,6 +401,18 @@ def update_zone(
 
     for key, value in data.items():
         setattr(zone, key, value)
+
+    if "is_active" in data and not bool(getattr(zone, "always_available", True)):
+        on_date, off_date = note_manual_shop_state(
+            is_open=bool(zone.is_active),
+            opening=getattr(zone, "opening_time", None),
+            closing=getattr(zone, "closing_time", None),
+            schedule_on_date=getattr(zone, "schedule_activated_on", None),
+            schedule_off_date=getattr(zone, "schedule_deactivated_on", None),
+        )
+        zone.schedule_activated_on = on_date
+        zone.schedule_deactivated_on = off_date
+
     db.commit()
     db.refresh(zone)
     return ZoneOut.model_validate(zone)
