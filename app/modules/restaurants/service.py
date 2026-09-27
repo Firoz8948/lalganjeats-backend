@@ -3,7 +3,7 @@ import re
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
-from app.core.maps import haversine_km, distance_and_drive_minutes
+from app.core.maps import distance_and_drive_minutes
 from app.core.schedule_hours import format_hhmm, format_opens_at, note_manual_shop_state, parse_hhmm
 from app.modules.auth.credentials import apply_partner_credentials
 from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
@@ -65,12 +65,79 @@ def assign_restaurant_slug(
     )
 
 
+DistanceCache = dict[tuple, float | None]
+
+
+def tenant_road_km_to_customer(
+    tenant,
+    customer_lat: float,
+    customer_lng: float,
+    dist_cache: DistanceCache | None = None,
+) -> float | None:
+    """
+    Road km from the tenant's LOCKED CENTRE to the customer.
+
+    This is the only paid lookup the restaurant list ever needs: one per
+    (tenant, customer location) per request, and it is memoised in the DB
+    by app.core.maps so a repeat visitor costs nothing.
+    """
+    if tenant is None or tenant.center_latitude is None or tenant.center_longitude is None:
+        return None
+    key = ("tenant", tenant.id, round(float(customer_lat), 4), round(float(customer_lng), 4))
+    if dist_cache is not None and key in dist_cache:
+        return dist_cache[key]
+    km, _ = distance_and_drive_minutes(
+        float(tenant.center_latitude),
+        float(tenant.center_longitude),
+        float(customer_lat),
+        float(customer_lng),
+        purpose="listing_zone_check",
+    )
+    if dist_cache is not None:
+        dist_cache[key] = km
+    return km
+
+
+def restaurant_road_km_to_customer(
+    restaurant: Restaurant,
+    customer_lat: float,
+    customer_lng: float,
+    *,
+    purpose: str = "menu_delivery_quote",
+) -> float | None:
+    """
+    Exact road km from the restaurant's own pin to the customer.
+
+    Called when the customer opens a restaurant menu; the result is cached
+    in the DB so checkout / place_order reuse it instead of paying again.
+    """
+    lat = getattr(restaurant, "latitude", None)
+    lng = getattr(restaurant, "longitude", None)
+    tenant = getattr(restaurant, "tenant", None)
+    if lat is None or lng is None:
+        if tenant is None or tenant.center_latitude is None or tenant.center_longitude is None:
+            return None
+        lat, lng = tenant.center_latitude, tenant.center_longitude
+    km, _ = distance_and_drive_minutes(
+        float(lat), float(lng), float(customer_lat), float(customer_lng), purpose=purpose,
+    )
+    return km
+
+
 def _to_public(
     restaurant: Restaurant,
     index: int = 0,
     customer_lat: float | None = None,
     customer_lng: float | None = None,
+    dist_cache: DistanceCache | None = None,
+    *,
+    exact_quote: bool = False,
 ) -> dict:
+    """
+    exact_quote=False (list cards): fee from tenant-centre → customer km.
+    exact_quote=True  (menu page):  fee from restaurant-pin → customer km,
+                                    the same number checkout will charge.
+    """
     lat = getattr(restaurant, "latitude", None)
     lng = getattr(restaurant, "longitude", None)
     delivery_charge = 0.0
@@ -90,26 +157,18 @@ def _to_public(
         if exception is not None:
             delivery_charge = float(exception.delivery_charge)
         else:
-            zone_origin_lat = (
-                float(lat)
-                if lat is not None
-                else float(tenant.center_latitude)
-            )
-            zone_origin_lng = (
-                float(lng)
-                if lng is not None
-                else float(tenant.center_longitude)
-            )
-            zone_distance, _ = distance_and_drive_minutes(
-                zone_origin_lat,
-                zone_origin_lng,
-                customer_lat,
-                customer_lng,
-            )
-            delivery_charge = delivery_charge_for_distance(
-                tenant.zones or [],
-                zone_distance,
-            ) or 0.0
+            charge = None
+            if exact_quote:
+                pin_km = restaurant_road_km_to_customer(restaurant, customer_lat, customer_lng)
+                if pin_km is not None:
+                    charge = delivery_charge_for_distance(tenant.zones or [], pin_km)
+            if charge is None:
+                centre_km = tenant_road_km_to_customer(
+                    tenant, customer_lat, customer_lng, dist_cache
+                )
+                if centre_km is not None:
+                    charge = delivery_charge_for_distance(tenant.zones or [], centre_km)
+            delivery_charge = charge or 0.0
     return RestaurantPublicResponse(
         id=restaurant.id,
         name=restaurant.name,
@@ -151,8 +210,15 @@ def _restaurant_visible_for_customer(
     restaurant: Restaurant,
     customer_lat: float | None,
     customer_lng: float | None,
+    dist_cache: DistanceCache | None = None,
 ) -> bool:
-    """Visibility is based on customer road distance matching an active zone range."""
+    """
+    Visible when the customer is inside a delivery exception OR the road km
+    from the tenant's locked centre falls in an active zone range.
+
+    Every restaurant of a tenant shares the same answer, so a list of 20
+    restaurants costs at most ONE (cached) distance lookup.
+    """
     if customer_lat is None or customer_lng is None:
         return False
     tenant = getattr(restaurant, "tenant", None)
@@ -164,21 +230,10 @@ def _restaurant_visible_for_customer(
         customer_lng,
     ) is not None:
         return True
-    r_lat = float(restaurant.latitude) if restaurant.latitude is not None else (
-        float(tenant.center_latitude) if tenant.center_latitude is not None else None
-    )
-    r_lng = float(restaurant.longitude) if restaurant.longitude is not None else (
-        float(tenant.center_longitude) if tenant.center_longitude is not None else None
-    )
-    if r_lat is None or r_lng is None:
+    centre_km = tenant_road_km_to_customer(tenant, customer_lat, customer_lng, dist_cache)
+    if centre_km is None:
         return False
-    distance, _ = distance_and_drive_minutes(
-        r_lat,
-        r_lng,
-        float(customer_lat),
-        float(customer_lng),
-    )
-    return delivery_charge_for_distance(tenant.zones or [], distance) is not None
+    return delivery_charge_for_distance(tenant.zones or [], centre_km) is not None
 
 
 def list_public_restaurants(
@@ -220,15 +275,16 @@ def list_public_restaurants(
             .distinct()
         )
     restaurants = query.order_by(Restaurant.created_at.desc()).all()
+    dist_cache: DistanceCache = {}
     visible = [
         r
         for r in restaurants
-        if _restaurant_visible_for_customer(r, customer_lat, customer_lng)
+        if _restaurant_visible_for_customer(r, customer_lat, customer_lng, dist_cache)
     ]
     # Prioritize open restaurants on top, closed restaurants at the bottom
     visible.sort(key=lambda r: (not getattr(r, "is_open", False)))
     return [
-        _to_public(r, i, customer_lat, customer_lng)
+        _to_public(r, i, customer_lat, customer_lng, dist_cache)
         for i, r in enumerate(visible)
     ]
 
@@ -271,13 +327,14 @@ def search_restaurants_by_dish(
     )
 
     by_id: dict[int, dict] = {}
+    dist_cache: DistanceCache = {}
     for restaurant, item_name in rows:
         existing = by_id.get(restaurant.id)
         if existing is None:
             if len(by_id) >= limit:
                 continue
             if not _restaurant_visible_for_customer(
-                restaurant, customer_lat, customer_lng
+                restaurant, customer_lat, customer_lng, dist_cache
             ):
                 continue
             payload = _to_public(
@@ -285,6 +342,7 @@ def search_restaurants_by_dish(
                 restaurant.id,
                 customer_lat,
                 customer_lng,
+                dist_cache,
             )
             payload["matched_items"] = []
             by_id[restaurant.id] = payload
@@ -324,10 +382,18 @@ def get_public_restaurant(
     customer_lat: float | None = None,
     customer_lng: float | None = None,
 ) -> dict:
+    """
+    Menu-page header. This is where the exact restaurant-pin → customer road
+    distance is fetched (one Google call, DB-cached) so the delivery charge
+    shown here is the same one checkout / place_order will use.
+    """
     restaurant = resolve_restaurant_key(db, str(restaurant_key))
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
-    if not _restaurant_visible_for_customer(restaurant, customer_lat, customer_lng):
+    dist_cache: DistanceCache = {}
+    if not _restaurant_visible_for_customer(
+        restaurant, customer_lat, customer_lng, dist_cache
+    ):
         raise HTTPException(
             status_code=404,
             detail="Restaurant is outside your delivery area",
@@ -337,6 +403,8 @@ def get_public_restaurant(
         restaurant.id,
         customer_lat,
         customer_lng,
+        dist_cache,
+        exact_quote=True,
     )
 
 

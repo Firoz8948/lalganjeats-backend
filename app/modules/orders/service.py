@@ -12,11 +12,15 @@ from sqlalchemy.orm import Session
 from app.core import sms
 
 logger = logging.getLogger(__name__)
-from app.core.maps import estimate_customer_eta_minutes, haversine_km
+from app.core.maps import COOK_BUFFER_MIN, drive_minutes_for_km
 from app.modules.orders.models import Order, OrderItem
 from app.modules.orders.schemas import PlaceOrderRequest
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuItemVariant
-from app.modules.restaurants.service import _restaurant_visible_for_customer
+from app.modules.restaurants.service import (
+    _restaurant_visible_for_customer,
+    restaurant_road_km_to_customer,
+    tenant_road_km_to_customer,
+)
 from app.modules.restaurants.service_area import (
     delivery_rates_for_distance,
     delivery_charge_for_distance,
@@ -240,17 +244,17 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     actual_total = round(actual_total, 2)
 
     tenant = restaurant.tenant
-    r_lat = float(restaurant.latitude) if restaurant.latitude is not None else (
-        float(tenant.center_latitude) if tenant.center_latitude is not None else None
-    )
-    r_lng = float(restaurant.longitude) if restaurant.longitude is not None else (
-        float(tenant.center_longitude) if tenant.center_longitude is not None else None
-    )
 
+    # Same restaurant-pin road km the menu page already fetched (DB cache hit).
     distance_km = None
     eta_minutes = None
-    if r_lat is not None and r_lng is not None and lat is not None and lng is not None:
-        distance_km, eta_minutes = estimate_customer_eta_minutes(r_lat, r_lng, lat, lng)
+    if lat is not None and lng is not None:
+        pin_km = restaurant_road_km_to_customer(
+            restaurant, float(lat), float(lng), purpose="order_placement",
+        )
+        if pin_km is not None:
+            distance_km = pin_km
+            eta_minutes = COOK_BUFFER_MIN + drive_minutes_for_km(pin_km)
 
     exception = matching_delivery_exception(
         tenant.delivery_exceptions or [],
@@ -262,12 +266,15 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         dp_payout = float(exception.delivery_charge)
     else:
         calc_dist = distance_km
-        if calc_dist is None and r_lat is not None and r_lng is not None and lat is not None and lng is not None:
-            calc_dist = haversine_km(float(lat), float(lng), r_lat, r_lng)
         rates = delivery_rates_for_distance(
             tenant.zones or [],
             calc_dist if calc_dist is not None else 0.0,
         )
+        # Listed via tenant centre; pin can sit just outside a zone edge.
+        if rates is None and lat is not None and lng is not None:
+            centre_km = tenant_road_km_to_customer(tenant, float(lat), float(lng))
+            if centre_km is not None:
+                rates = delivery_rates_for_distance(tenant.zones or [], centre_km)
         if rates is None:
             max_km = max_active_zone_radius_km(tenant.zones or []) or 10.0
             raise HTTPException(

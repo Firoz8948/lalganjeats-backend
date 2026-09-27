@@ -3,14 +3,20 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.maps import distance_and_drive_minutes
+from app.core.maps import approx_road_km, drive_minutes_for_km, maps_pin_url
 from app.modules.users.models import User
 from app.modules.getlocation import repository as loc_repo
 from app.modules.tracking.schemas import LatLng, TrackOrderOut, TrackingPublicConfig
 from app.modules.delivery_partner.service import serialize_public_identity
 from app.modules.orders.status_meta import customer_status_meta
 
-TRACKABLE = ("accepted", "ready", "picked_up", "delivered")
+TRACKABLE = ("accepted", "ready", "picked_up", "out_for_delivery", "delivered")
+# Rider GPS is shared with the customer only after pickup.
+LIVE_STATUSES = loc_repo.TRACKING_LIVE_STATUSES
+
+
+def _ping_seconds() -> int:
+    return int(getattr(settings, "RIDER_LOCATION_INTERVAL_SECONDS", 120) or 120)
 
 
 def _status_meta_for(order) -> str:
@@ -53,7 +59,8 @@ def public_config() -> TrackingPublicConfig:
         google_maps_api_key=key,
         maps_enabled=bool(key),
         app_name=settings.SMS_BRAND_NAME or "LalganjEats",
-        track_poll_seconds=4,
+        track_poll_seconds=_ping_seconds(),
+        rider_ping_seconds=_ping_seconds(),
     )
 
 
@@ -80,7 +87,6 @@ def get_track_snapshot(
     if not allowed:
         raise HTTPException(403, "Not allowed to view this order location")
 
-    maps_key = (settings.GOOGLE_MAPS_API_KEY or "").strip() or None
     r = order.restaurant
     restaurant = _ll(
         getattr(r, "latitude", None) if r else None,
@@ -97,7 +103,8 @@ def get_track_snapshot(
         status_meta=status_meta,
         restaurant=restaurant,
         customer=customer,
-        google_maps_api_key=maps_key,
+        google_maps_api_key=None,
+        rider_ping_seconds=_ping_seconds(),
         message=status_meta,
     )
 
@@ -105,9 +112,9 @@ def get_track_snapshot(
         return base
 
     base.delivery_partner = serialize_public_identity(order.delivery_partner)
+    base.delivery_partner_id = order.delivery_partner_id
 
     if order.status not in TRACKABLE:
-        base.delivery_partner_id = order.delivery_partner_id
         return base
 
     if order.status == "delivered":
@@ -118,46 +125,47 @@ def get_track_snapshot(
         base.distance_km = 0
         base.eta_label = "Delivered"
         base.message = status_meta
-        base.delivery_partner_id = order.delivery_partner_id
+        return base
+
+    # Before pickup: the rider is heading to the restaurant. We deliberately
+    # do NOT expose the rider's position yet (and the app is not sending it).
+    if order.status not in LIVE_STATUSES:
+        base.available = True
+        base.phase = "to_restaurant"
+        base.destination = restaurant
+        base.eta_label = "Preparing your order"
+        base.message = status_meta
         return base
 
     profile = loc_repo.get_profile_by_user_id(db, order.delivery_partner_id)
     lat, lng = _coords(profile)
-    base.delivery_partner_id = order.delivery_partner_id
     base.updated_at = profile.location_updated_at if profile else None
+    base.phase = "to_customer"
+    base.destination = customer
+    base.live_tracking = True
 
     if lat is None or lng is None:
-        base.message = status_meta
+        base.available = True
+        base.eta_label = "Rider is on the way"
+        base.message = "Waiting for the rider's first location update"
         return base
 
     rider = LatLng(lat=lat, lng=lng)
     base.rider = rider
+    base.rider_maps_url = maps_pin_url(lat, lng)
 
-    if order.status in ("accepted", "ready") and order.delivery_partner_id:
-        phase = "to_restaurant"
-        dest = restaurant
-        eta_label_prefix = "Rider reaching restaurant in"
-    else:
-        phase = "to_customer"
-        dest = customer
-        eta_label_prefix = "Rider is"
-
-    base.phase = phase
-    base.destination = dest
-
-    if dest is None:
+    if customer is None:
         base.available = True
         base.message = "Waiting for destination coordinates"
-        base.eta_label = "En route"
+        base.eta_label = "Rider is on the way"
         return base
 
-    km, mins = distance_and_drive_minutes(rider.lat, rider.lng, dest.lat, dest.lng)
+    # Free estimate (straight line × road factor). Refreshed every ping.
+    km = approx_road_km(rider.lat, rider.lng, customer.lat, customer.lng)
+    mins = drive_minutes_for_km(km)
     base.distance_km = km
     base.eta_minutes = mins
-    if phase == "to_customer":
-        base.eta_label = f"Rider is {mins} min away"
-    else:
-        base.eta_label = f"{eta_label_prefix} ~{mins} min"
+    base.eta_label = f"Rider is about {mins} min away"
     base.available = True
     base.message = status_meta
     return base

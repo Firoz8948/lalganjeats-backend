@@ -1,10 +1,10 @@
 # backend/app/modules/delivery/router.py
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.core.security import get_delivery_partner
@@ -153,13 +153,26 @@ def toggle_online(
     return {"is_online": profile.is_online}
 
 
+class AcceptBody(BaseModel):
+    """One-shot GPS fix captured by the rider app when tapping Accept."""
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
+    accuracy_m: float | None = None
+
+
 @router.patch("/orders/{order_id}/accept")
 def accept_order(
     order_id: int,
+    payload: AcceptBody | None = Body(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_delivery_partner),
 ):
-    order = dispatch.accept_offer(db, order_id, current_user)
+    lat = payload.latitude if payload else None
+    lng = payload.longitude if payload else None
+    acc = payload.accuracy_m if payload else None
+    order = dispatch.accept_offer(
+        db, order_id, current_user, latitude=lat, longitude=lng, accuracy_m=acc
+    )
     return {
         "message": "Order accepted",
         "order_number": order.order_number,

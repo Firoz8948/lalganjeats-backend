@@ -11,7 +11,13 @@ class LatLng(BaseModel):
 
 
 class TrackOrderOut(BaseModel):
-    """Customer live tracking snapshot (poll every few seconds)."""
+    """
+    Customer tracking snapshot.
+
+    Rider position is only present once the order is picked up, and it is
+    refreshed every `rider_ping_seconds` (2 min) from the rider's device.
+    Distance / ETA are free straight-line estimates — no Google call.
+    """
     available: bool
     message: Optional[str] = None
     order_id: int
@@ -29,11 +35,18 @@ class TrackOrderOut(BaseModel):
     updated_at: Optional[datetime] = None
     delivery_partner_id: Optional[int] = None
     delivery_partner: Optional[DeliveryPartnerPublic] = None
+    # Kept for older app bundles; always None now (tracking map is Leaflet/OSM).
     google_maps_api_key: Optional[str] = None
+    # Deep link that opens the rider's last position in the Google Maps app.
+    rider_maps_url: Optional[str] = None
+    rider_ping_seconds: int = 120
+    live_tracking: bool = False
 
 
 class TrackingPublicConfig(BaseModel):
+    # Still served for the address search (Places / Geocoding) in the navbar.
     google_maps_api_key: Optional[str] = None
     maps_enabled: bool = False
     app_name: str = "LalganjEats"
-    track_poll_seconds: int = 4
+    track_poll_seconds: int = 120
+    rider_ping_seconds: int = 120

@@ -23,7 +23,25 @@ def update_my_location(
 ) -> LocationOut:
     profile = repo.get_or_create_profile(db, partner.id)
     profile = repo.update_location(db, profile, payload.latitude, payload.longitude)
-    active = repo.get_active_order_for_partner(db, partner.id)
+
+    active = None
+    if payload.order_id:
+        candidate = repo.get_order_by_id(db, payload.order_id)
+        if candidate and candidate.delivery_partner_id == partner.id:
+            active = candidate
+    if active is None:
+        active = repo.get_active_order_for_partner(db, partner.id)
+
+    source = payload.source or (
+        "pickup_ping" if active and active.status in repo.TRACKING_LIVE_STATUSES else "ping"
+    )
+    repo.log_location(
+        db, partner.id, active.id if active else None,
+        payload.latitude, payload.longitude,
+        accuracy_m=payload.accuracy_m, source=source,
+    )
+    db.commit()
+    db.refresh(profile)
 
     out = LocationOut(
         latitude=float(profile.current_latitude),
@@ -36,8 +54,8 @@ def update_my_location(
         message="Location updated",
     )
 
-    # Push live track snapshot to any customers watching this order
-    if active is not None:
+    # Customers only see the rider after pickup; skip the broadcast otherwise.
+    if active is not None and active.status in repo.TRACKING_LIVE_STATUSES:
         try:
             from app.modules.tracking.service import get_track_snapshot
             from app.modules.websocket.broadcast import publish_tracking_update

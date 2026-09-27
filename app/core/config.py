@@ -34,6 +34,11 @@ class Settings(BaseSettings):
 
     RENFLAIR_API_KEY: str = ""
     GOOGLE_MAPS_API_KEY: str = ""
+    # Used only for the estimated ₹ column in maps_api_usage_logs
+    # (₹31,104 / 41,528 Distance Matrix calls on the Sept-2026 bill ≈ ₹0.75).
+    MAPS_COST_PER_CALL_INR: float = 0.75
+    # Rider app sends its GPS to us this often while an order is picked up.
+    RIDER_LOCATION_INTERVAL_SECONDS: int = 120
     SMS_BRAND_NAME: str = "LalganjEats"
     DELIVERY_OFFER_WAIT_SECONDS: int = 10
     FIREBASE_CREDENTIALS_PATH: str = "lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json"

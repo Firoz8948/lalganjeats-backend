@@ -1,11 +1,12 @@
 """
-Nearest-first delivery partner cascade (tenant-scoped).
+Tenant-scoped delivery broadcast.
 
 Rules:
-- Only online partners with GPS, same tenant as the order/restaurant
-- Rank by distance to restaurant
-- Offer to rank 1 first; on reject → immediate next; on silence → wait N seconds then expand
-- Accept locks the order exclusively
+- When the restaurant accepts, the order is offered to EVERY active delivery
+  partner of the restaurant's tenant. No rider distance is computed and no
+  Google API is called anywhere in this module (haversine only, which is free).
+- The first partner to accept locks the order exclusively.
+- On accept the rider app sends one GPS fix which we store on the profile.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.maps import distance_and_drive_minutes, haversine_km, maps_embed_url
+from app.core.maps import approx_road_km, haversine_km, maps_directions_url
 from app.core import sms
 from app.modules.orders.models import Order, DeliveryProfile, DeliveryOffer
 from app.modules.users.models import User
@@ -77,7 +78,7 @@ def ranked_partners(db: Session, order: Order) -> list[tuple[User, DeliveryProfi
     rows = q.all()
     ranked = []
     for user, profile in rows:
-        km, _ = distance_and_drive_minutes(
+        km = haversine_km(
             float(profile.current_latitude),
             float(profile.current_longitude),
             r_lat,
@@ -123,7 +124,7 @@ def _upsert_offer(
         and profile.current_longitude is not None
     ):
         try:
-            km, _ = distance_and_drive_minutes(
+            km = haversine_km(
                 float(profile.current_latitude),
                 float(profile.current_longitude),
                 r_lat,
@@ -241,7 +242,14 @@ def start_dispatch(order_id: int) -> None:
         db.close()
 
 
-def accept_offer(db: Session, order_id: int, partner: User) -> Order:
+def accept_offer(
+    db: Session,
+    order_id: int,
+    partner: User,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    accuracy_m: float | None = None,
+) -> Order:
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         from fastapi import HTTPException
@@ -310,6 +318,25 @@ def accept_offer(db: Session, order_id: int, partner: User) -> Order:
 
     order.delivery_partner_id = partner.id
     # Keep customer-facing status (accepted/ready); assignment is via partner id.
+
+    # One-shot GPS fix sent by the rider app together with the accept.
+    if latitude is not None and longitude is not None:
+        try:
+            from app.modules.getlocation.repository import (
+                get_or_create_profile,
+                log_location,
+            )
+            profile = get_or_create_profile(db, partner.id)
+            profile.current_latitude = latitude
+            profile.current_longitude = longitude
+            profile.location_updated_at = now
+            log_location(
+                db, partner.id, order.id, latitude, longitude,
+                accuracy_m=accuracy_m, source="accept",
+            )
+        except Exception:
+            logger.exception("Could not store accept location for partner %s", partner.id)
+
     db.commit()
     db.refresh(order)
 
@@ -358,11 +385,11 @@ def serialize_offer_order(
     map_to_restaurant = None
     map_to_customer = None
 
+    # Saved at order placement (exact road km). Free approximation otherwise —
+    # this serializer runs on every 5-second dashboard poll, so it must never
+    # hit Google.
     if restaurant_to_customer_km is None and r_lat is not None and c_lat is not None:
-        if for_list:
-            restaurant_to_customer_km = haversine_km(r_lat, r_lng, c_lat, c_lng)
-        else:
-            restaurant_to_customer_km, _ = distance_and_drive_minutes(r_lat, r_lng, c_lat, c_lng)
+        restaurant_to_customer_km = approx_road_km(r_lat, r_lng, c_lat, c_lng)
 
     if not for_list:
         profile = (
@@ -374,10 +401,12 @@ def serialize_offer_order(
         p_lng = float(profile.current_longitude) if profile and profile.current_longitude is not None else None
 
         if p_lat is not None and r_lat is not None:
-            to_restaurant_km, _ = distance_and_drive_minutes(p_lat, p_lng, r_lat, r_lng)
-            map_to_restaurant = maps_embed_url(p_lat, p_lng, r_lat, r_lng)
-        if p_lat is not None and c_lat is not None:
-            map_to_customer = maps_embed_url(p_lat, p_lng, c_lat, c_lng)
+            to_restaurant_km = approx_road_km(p_lat, p_lng, r_lat, r_lng)
+        # Keyless deep links: the Google Maps APP routes from live GPS for free.
+        if r_lat is not None:
+            map_to_restaurant = maps_directions_url(r_lat, r_lng)
+        if c_lat is not None:
+            map_to_customer = maps_directions_url(c_lat, c_lng)
 
     payout = float(
         order.delivery_partner_earning
@@ -430,7 +459,11 @@ def serialize_offer_order(
         "distance_km_to_restaurant": to_restaurant_km,
         "eta_minutes": order.eta_minutes,
         "map_to_restaurant": map_to_restaurant,
-        "map_to_customer": map_to_customer if order.status == "picked_up" else None,
+        "map_to_customer": (
+            map_to_customer
+            if order.status in ("picked_up", "out_for_delivery")
+            else None
+        ),
         "payment_method": order.payment_method,
         "payment_status": order.payment_status,
         "payment_label": payment_label,

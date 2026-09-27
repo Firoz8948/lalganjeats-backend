@@ -2,10 +2,35 @@
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
+from app.modules.getlocation.models import DeliveryLocationLog
 from app.modules.orders.models import DeliveryProfile, Order
 
 
-ACTIVE_DELIVERY_STATUSES = ("accepted", "ready", "picked_up")
+ACTIVE_DELIVERY_STATUSES = ("accepted", "ready", "picked_up", "out_for_delivery")
+# Rider position is shared with the customer only in these statuses.
+TRACKING_LIVE_STATUSES = ("picked_up", "out_for_delivery")
+
+
+def log_location(
+    db: Session,
+    partner_id: int,
+    order_id: int | None,
+    latitude: float,
+    longitude: float,
+    *,
+    accuracy_m: float | None = None,
+    source: str = "ping",
+) -> DeliveryLocationLog:
+    row = DeliveryLocationLog(
+        delivery_partner_id=partner_id,
+        order_id=order_id,
+        latitude=latitude,
+        longitude=longitude,
+        accuracy_m=accuracy_m,
+        source=(source or "ping")[:20],
+    )
+    db.add(row)
+    return row
 
 
 def get_profile_by_user_id(db: Session, user_id: int) -> DeliveryProfile | None:
@@ -36,8 +61,7 @@ def update_location(
     profile.current_longitude = longitude
     profile.location_updated_at = datetime.now(timezone.utc)
     db.add(profile)
-    db.commit()
-    db.refresh(profile)
+    db.flush()
     return profile
 
 
