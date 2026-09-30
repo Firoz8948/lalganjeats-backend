@@ -102,6 +102,9 @@ _URGENT_SOUND = "order_alert"
 # created lalganjeats_urgent_orders without the loud sound — a new id forces
 # a fresh high-importance channel with order_alert after partners open the app.
 _URGENT_CHANNEL = "lalganjeats_urgent_v2"
+# DP offer channel on the alarm stream (rings on silent/vibrate). Builds without it
+# fall back to their manifest default channel, so older APKs keep working.
+DP_OFFER_CHANNEL = "lalganjeats_offer_alarm_v3"
 _NORMAL_SOUND = "default"
 _NORMAL_CHANNEL = "lalganjeats_alerts"
 

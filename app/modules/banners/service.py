@@ -2,11 +2,15 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from app.modules.banners.models import HomeBannerSlide
+from app.modules.restaurants.models import CatalogCategory
+
+DEFAULT_CATEGORY_SLUG = "restaurant"
 
 
 def _serialize(s: HomeBannerSlide) -> dict:
     return {
         "id": s.id,
+        "business_category_id": s.business_category_id,
         "slide_number": s.slide_number,
         "desktop_image_url": s.desktop_image_url,
         "mobile_image_url": s.mobile_image_url,
@@ -14,19 +18,43 @@ def _serialize(s: HomeBannerSlide) -> dict:
     }
 
 
-def list_all_slides(db: Session) -> list[HomeBannerSlide]:
+def resolve_category_id(db: Session, category_id: int | None) -> int:
+    """No category means the Food (restaurant) carousel — older app builds send none."""
+    if category_id is None:
+        row = (
+            db.query(CatalogCategory.id)
+            .filter(CatalogCategory.slug == DEFAULT_CATEGORY_SLUG)
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Default banner category not found")
+        return row[0]
+    if not db.query(CatalogCategory.id).filter(CatalogCategory.id == category_id).first():
+        raise HTTPException(404, "Category not found")
+    return category_id
+
+
+def _is_default_category(db: Session, category_id: int) -> bool:
+    return resolve_category_id(db, None) == category_id
+
+
+def list_all_slides(db: Session, category_id: int) -> list[HomeBannerSlide]:
     return (
         db.query(HomeBannerSlide)
+        .filter(HomeBannerSlide.business_category_id == category_id)
         .order_by(HomeBannerSlide.slide_number)
         .all()
     )
 
 
-def list_public_slides(db: Session) -> list[HomeBannerSlide]:
+def list_public_slides(db: Session, category_id: int) -> list[HomeBannerSlide]:
     """Active slides only — used on the customer home carousel."""
     return (
         db.query(HomeBannerSlide)
-        .filter(HomeBannerSlide.is_active == True)  # noqa: E712
+        .filter(
+            HomeBannerSlide.business_category_id == category_id,
+            HomeBannerSlide.is_active == True,  # noqa: E712
+        )
         .order_by(HomeBannerSlide.slide_number)
         .all()
     )
@@ -39,18 +67,20 @@ def get_slide(db: Session, slide_id: int) -> HomeBannerSlide:
     return slide
 
 
-def _next_slide_number(db: Session) -> int:
+def _next_slide_number(db: Session, category_id: int) -> int:
     row = (
         db.query(HomeBannerSlide.slide_number)
+        .filter(HomeBannerSlide.business_category_id == category_id)
         .order_by(HomeBannerSlide.slide_number.desc())
         .first()
     )
     return (row[0] + 1) if row else 1
 
 
-def create_slide(db: Session) -> HomeBannerSlide:
+def create_slide(db: Session, category_id: int) -> HomeBannerSlide:
     slide = HomeBannerSlide(
-        slide_number=_next_slide_number(db),
+        business_category_id=category_id,
+        slide_number=_next_slide_number(db, category_id),
         is_active=True,
     )
     db.add(slide)
@@ -72,29 +102,33 @@ def update_slide(db: Session, slide_id: int, **fields) -> HomeBannerSlide:
     return slide
 
 
-def delete_slide(db: Session, slide_id: int) -> None:
+def delete_slide(db: Session, slide_id: int) -> int:
+    """Delete a slide and renumber its category 1..n. Returns that category id."""
     slide = get_slide(db, slide_id)
+    category_id = slide.business_category_id
     db.delete(slide)
     db.commit()
-    # Renumber remaining slides 1..n for stable ordering
-    remaining = list_all_slides(db)
+    remaining = list_all_slides(db, category_id)
     for i, s in enumerate(remaining, start=1):
         if s.slide_number != i:
             s.slide_number = i
     db.commit()
+    return category_id
 
 
-def save_slides_bulk(db: Session, updates: list[dict]) -> list[HomeBannerSlide]:
+def save_slides_bulk(db: Session, category_id: int, updates: list[dict]) -> list[HomeBannerSlide]:
     """Update existing slides by id or slide_number (legacy bulk save)."""
     for item in updates:
         slide = None
         if item.get("id"):
             slide = db.query(HomeBannerSlide).filter(
-                HomeBannerSlide.id == item["id"]
+                HomeBannerSlide.id == item["id"],
+                HomeBannerSlide.business_category_id == category_id,
             ).first()
         if not slide and item.get("slide_number") is not None:
             slide = db.query(HomeBannerSlide).filter(
-                HomeBannerSlide.slide_number == item["slide_number"]
+                HomeBannerSlide.business_category_id == category_id,
+                HomeBannerSlide.slide_number == item["slide_number"],
             ).first()
         if not slide:
             continue
@@ -105,21 +139,21 @@ def save_slides_bulk(db: Session, updates: list[dict]) -> list[HomeBannerSlide]:
         if "is_active" in item and item["is_active"] is not None:
             slide.is_active = bool(item["is_active"])
     db.commit()
-    return list_all_slides(db)
+    return list_all_slides(db, category_id)
 
 
 # Back-compat aliases used by older admin routes
-def ensure_slides(db: Session) -> list[HomeBannerSlide]:
-    slides = list_all_slides(db)
-    if slides:
+def ensure_slides(db: Session, category_id: int) -> list[HomeBannerSlide]:
+    slides = list_all_slides(db, category_id)
+    if slides or not _is_default_category(db, category_id):
         return slides
-    # Seed three empty slides for first-time setup
+    # Seed three empty slides for first-time setup of the Food carousel
     for n in range(1, 4):
-        db.add(HomeBannerSlide(slide_number=n, is_active=True))
+        db.add(HomeBannerSlide(business_category_id=category_id, slide_number=n, is_active=True))
     db.commit()
-    return list_all_slides(db)
+    return list_all_slides(db, category_id)
 
 
-def save_slides(db: Session, updates: list[dict]) -> list[HomeBannerSlide]:
-    ensure_slides(db)
-    return save_slides_bulk(db, updates)
+def save_slides(db: Session, category_id: int, updates: list[dict]) -> list[HomeBannerSlide]:
+    ensure_slides(db, category_id)
+    return save_slides_bulk(db, category_id, updates)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -14,19 +14,23 @@ router = APIRouter()
 
 @router.get("/home-banners")
 def get_home_banners_admin(
+    category_id: int | None = Query(None),
     db: Session = Depends(get_db),
     _=Depends(get_admin),
 ):
-    slides = banner_service.ensure_slides(db)
+    resolved = banner_service.resolve_category_id(db, category_id)
+    slides = banner_service.ensure_slides(db, resolved)
     return [banner_service._serialize(slide) for slide in slides]
 
 
 @router.post("/home-banners", status_code=201)
 def create_home_banner(
+    category_id: int | None = Query(None),
     db: Session = Depends(get_db),
     _=Depends(get_admin),
 ):
-    slide = banner_service.create_slide(db)
+    resolved = banner_service.resolve_category_id(db, category_id)
+    slide = banner_service.create_slide(db, resolved)
     return banner_service._serialize(slide)
 
 
@@ -48,12 +52,12 @@ def delete_home_banner(
     db: Session = Depends(get_db),
     _=Depends(get_admin),
 ):
-    banner_service.delete_slide(db, slide_id)
+    category_id = banner_service.delete_slide(db, slide_id)
     return {
         "message": "Slide deleted",
         "slides": [
             banner_service._serialize(slide)
-            for slide in banner_service.list_all_slides(db)
+            for slide in banner_service.list_all_slides(db, category_id)
         ],
     }
 
@@ -61,12 +65,14 @@ def delete_home_banner(
 @router.put("/home-banners")
 def save_home_banners(
     body: HomeBannersSaveRequest,
+    category_id: int | None = Query(None),
     db: Session = Depends(get_db),
     _=Depends(get_admin),
 ):
+    resolved = banner_service.resolve_category_id(db, category_id)
     updates = [
         slide.model_dump(exclude_none=False)
         for slide in body.slides
     ]
-    slides = banner_service.save_slides(db, updates)
+    slides = banner_service.save_slides(db, resolved, updates)
     return [banner_service._serialize(slide) for slide in slides]

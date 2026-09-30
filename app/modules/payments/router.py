@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.core.database import SessionLocal, get_db
@@ -407,6 +408,12 @@ async def razorpay_webhook(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
     data = json.loads(payload)
+    # Sync DB work must stay off the event loop, or a stalled query freezes the server.
+    await run_in_threadpool(_handle_webhook_event, data, background_tasks)
+    return {"status": "ok"}
+
+
+def _handle_webhook_event(data: dict, background_tasks: BackgroundTasks) -> None:
     event = data.get("event")
 
     if event == "payment.captured":
@@ -467,8 +474,6 @@ async def razorpay_webhook(request: Request, background_tasks: BackgroundTasks):
                 )
             finally:
                 db.close()
-
-    return {"status": "ok"}
 
 
 @router.post("/bank-account", response_model=BankAccountResponse)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
@@ -221,25 +222,78 @@ def start_dispatch(order_id: int) -> None:
 
         db.commit()
 
-        fcm_tokens = [
-            user.fcm_token for user, _ in partners if getattr(user, "fcm_token", None)
-        ]
-        if fcm_tokens:
-            try:
-                from app.core.fcm import send_multicast_push
-                r_name = order.restaurant.name if order.restaurant else "Restaurant"
-                send_multicast_push(
-                    tokens=fcm_tokens,
-                    title="New Delivery Order Available!",
-                    body=f"New pickup at {r_name}. Order #{order.order_number}",
-                    data={"type": "new_offer", "order_id": str(order.id)},
-                )
-            except Exception as e:
-                logger.warning("Failed to broadcast FCM push for order %s: %s", order.id, e)
+        _push_offer(order, partners)
+        _start_offer_reminders(order.id)
     except Exception:
         logger.exception("Broadcast dispatch failed for order %s", order_id)
     finally:
         db.close()
+
+
+def _push_offer(order: Order, partners, *, reminder: bool = False) -> None:
+    fcm_tokens = [
+        user.fcm_token for user, _ in partners if getattr(user, "fcm_token", None)
+    ]
+    if not fcm_tokens:
+        return
+    try:
+        from app.core.fcm import DP_OFFER_CHANNEL, send_multicast_push
+        r_name = order.restaurant.name if order.restaurant else "Restaurant"
+        if reminder:
+            title = "Order still waiting for a rider!"
+            body = f"Pickup at {r_name}. Order #{order.order_number}. Accept now!"
+        else:
+            title = "New Delivery Order Available!"
+            body = f"New pickup at {r_name}. Order #{order.order_number}"
+        send_multicast_push(
+            tokens=fcm_tokens,
+            title=title,
+            body=body,
+            data={"type": "new_offer", "order_id": str(order.id)},
+            channel_id=DP_OFFER_CHANNEL,
+        )
+    except Exception as e:
+        logger.warning("Failed to broadcast FCM push for order %s: %s", order.id, e)
+
+
+_reminder_orders: set[int] = set()
+_reminder_lock = threading.Lock()
+
+
+def _start_offer_reminders(order_id: int) -> None:
+    """Re-ring every rider until the order is accepted; a single missed push
+    (app killed, phone in pocket) must not leave the order unnoticed."""
+    interval = int(getattr(settings, "DELIVERY_OFFER_REMINDER_SECONDS", 60) or 0)
+    max_reminders = int(getattr(settings, "DELIVERY_OFFER_MAX_REMINDERS", 10) or 0)
+    if interval <= 0 or max_reminders <= 0:
+        return
+    with _reminder_lock:
+        if order_id in _reminder_orders:
+            return
+        _reminder_orders.add(order_id)
+
+    def run() -> None:
+        try:
+            for _ in range(max_reminders):
+                time.sleep(interval)
+                db = SessionLocal()
+                try:
+                    order = db.query(Order).filter(Order.id == order_id).first()
+                    if not order or not is_open_unassigned_order(order):
+                        return
+                    partners = _broadcast_partners(db, order)
+                    if partners:
+                        logger.warning("[DISPATCH] Reminder push for unaccepted order %s", order_id)
+                        _push_offer(order, partners, reminder=True)
+                finally:
+                    db.close()
+        except Exception:
+            logger.exception("Offer reminders failed for order %s", order_id)
+        finally:
+            with _reminder_lock:
+                _reminder_orders.discard(order_id)
+
+    threading.Thread(target=run, name=f"offer-reminder-{order_id}", daemon=True).start()
 
 
 def accept_offer(

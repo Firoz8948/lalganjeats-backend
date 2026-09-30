@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.database import get_db
 from app.core.security import get_admin
@@ -108,7 +109,8 @@ async def download_delivery_partner_document(
 ):
     if purpose not in DOCUMENT_TYPES:
         raise HTTPException(404, "Unknown document type")
-    key = service.get_document_key(
+    key = await run_in_threadpool(
+        service.get_document_key,
         db,
         current.tenant_id,
         partner_id,

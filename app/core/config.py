@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     RIDER_LOCATION_INTERVAL_SECONDS: int = 120
     SMS_BRAND_NAME: str = "LalganjEats"
     DELIVERY_OFFER_WAIT_SECONDS: int = 10
+    # Re-ring riders until someone accepts an order (0 reminders disables).
+    DELIVERY_OFFER_REMINDER_SECONDS: int = 60
+    DELIVERY_OFFER_MAX_REMINDERS: int = 10
     FIREBASE_CREDENTIALS_PATH: str = "lalganjeats-firebase-adminsdk-fbsvc-bee7b16141.json"
     FIREBASE_CREDENTIALS_JSON: str = ""
 

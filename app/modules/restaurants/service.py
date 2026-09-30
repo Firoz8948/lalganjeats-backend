@@ -1,5 +1,6 @@
 import re
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
@@ -289,15 +290,30 @@ def list_public_restaurants(
     ]
 
 
+FOOD_CATEGORY_SLUG = "restaurant"
+
+
+def store_category_filter(db: Session, category_id: int | None):
+    """Stores of one home tab (Food when None); uncategorised stores belong to Food, as on the tabs."""
+    food_id = (
+        db.query(CatalogCategory.id).filter(CatalogCategory.slug == FOOD_CATEGORY_SLUG).scalar()
+    )
+    target = food_id if category_id is None else category_id
+    if target is not None and target == food_id:
+        return or_(Restaurant.business_category_id == target, Restaurant.business_category_id.is_(None))
+    return Restaurant.business_category_id == target
+
+
 def search_restaurants_by_dish(
     db: Session,
     *,
     q: str,
     customer_lat: float | None = None,
     customer_lng: float | None = None,
+    category_id: int | None = None,
     limit: int = 20,
 ) -> list[dict]:
-    """Find restaurants (in delivery area) that sell a matching menu item."""
+    """Find restaurants (in delivery area) of one category that sell a matching menu item."""
     query = (q or "").strip()
     if len(query) < 2:
         return []
@@ -316,6 +332,7 @@ def search_restaurants_by_dish(
         )
         .join(MenuItem, MenuItem.restaurant_id == Restaurant.id)
         .filter(
+            store_category_filter(db, category_id),
             Restaurant.is_active == True,  # noqa: E712
             Restaurant.is_approved == True,  # noqa: E712
             MenuItem.is_deleted == False,  # noqa: E712

@@ -12,6 +12,18 @@ if "sqlite" in settings.DATABASE_URL:
 else:
     engine_kwargs["pool_size"] = 10
     engine_kwargs["max_overflow"] = 20
+    engine_kwargs["pool_recycle"] = 1800
+    engine_kwargs["pool_timeout"] = 15
+    # The kernel defaults (2 h keepalive, ~15 min retransmit) let a silently
+    # dropped RDS connection hang a query for 15+ minutes; fail within ~30 s.
+    connect_args.update(
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=3,
+        tcp_user_timeout=30000,
+    )
 
 engine = create_engine(
     settings.DATABASE_URL,
@@ -103,6 +115,15 @@ def run_auto_migrations():
         # Promo audience (all vs new users) + usage tracked by mobile number.
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS audience VARCHAR(20) DEFAULT 'all';",
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS restaurant_id INTEGER;",
+        "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;",
+        "CREATE INDEX IF NOT EXISTS idx_promo_codes_public_active ON promo_codes (is_public, is_active) WHERE is_public = TRUE AND is_active = TRUE;",
+
+        # Catalog subcategory on menu items + chosen variant on order lines.
+        "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS business_subcategory_id INTEGER REFERENCES catalog_subcategories(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_menu_items_business_subcategory ON menu_items(business_subcategory_id);",
+        "ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES menu_item_variants(id) ON DELETE SET NULL;",
+        "ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_label VARCHAR(40);",
+        "CREATE INDEX IF NOT EXISTS idx_order_items_variant ON order_items(variant_id);",
         "CREATE INDEX IF NOT EXISTS ix_promo_codes_restaurant_id ON promo_codes(restaurant_id);",
         """
         CREATE TABLE IF NOT EXISTS promo_code_restaurants (
@@ -149,6 +170,17 @@ def run_auto_migrations():
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS closing_time TIME;",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS schedule_activated_on DATE;",
         "ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS schedule_deactivated_on DATE;",
+
+        # Home banners are per business category (Food tab = restaurant, Grocery tab = grocery).
+        "ALTER TABLE home_banner_slides ADD COLUMN IF NOT EXISTS business_category_id INT REFERENCES catalog_categories(id);",
+        """
+        UPDATE home_banner_slides
+        SET business_category_id = (SELECT id FROM catalog_categories WHERE slug = 'restaurant' LIMIT 1)
+        WHERE business_category_id IS NULL;
+        """,
+        "ALTER TABLE home_banner_slides DROP CONSTRAINT IF EXISTS home_banner_slides_slide_number_key;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_home_banner_category_slide ON home_banner_slides (business_category_id, slide_number);",
+        "CREATE INDEX IF NOT EXISTS ix_home_banner_slides_business_category_id ON home_banner_slides (business_category_id);",
     ]
     for stmt in statements:
         try:

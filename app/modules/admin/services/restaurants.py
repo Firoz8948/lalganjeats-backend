@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.core.security import create_access_token
+from app.core.compressor import MAX_DIMENSION
 from app.core.storage import save_upload
 from app.modules.admin.models import ImpersonationSession
 from app.modules.admin.schemas import (
@@ -627,15 +628,12 @@ async def upload_restaurant_image(
             ),
         )
 
-    max_bytes = (
-        5 * 1024 * 1024
-        if purpose.startswith("home_banner")
-        else 2 * 1024 * 1024
-    )
+    # Subcategory tiles render at most 88 px; 512 px stays sharp on 3x screens.
+    max_dimension = 512 if purpose == "subcategory" else MAX_DIMENSION
     relative_path = await save_upload(
         file,
         folder_map[purpose],
-        max_bytes=max_bytes,
+        max_dimension=max_dimension,
     )
     base = str(request.base_url).rstrip("/")
     return {

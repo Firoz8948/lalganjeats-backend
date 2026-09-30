@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, UploadFile, File, Form, Header, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.modules.users.models import User
@@ -60,21 +61,21 @@ async def publish_update(
     else:
         bundle_url = await _save_local(f"ota/{app_id}", filename, content)
 
-    # Deactivate previous active releases for this app
-    db.query(AppUpdateRelease).filter(AppUpdateRelease.app_id == app_id).update({"is_active": False})
+    def activate_release() -> None:
+        # Deactivate previous active releases for this app
+        db.query(AppUpdateRelease).filter(AppUpdateRelease.app_id == app_id).update({"is_active": False})
+        db.add(AppUpdateRelease(
+            app_id=app_id,
+            version=version,
+            bundle_url=bundle_url,
+            checksum=checksum,
+            release_notes=release_notes,
+            is_mandatory=is_mandatory,
+            is_active=True,
+        ))
+        db.commit()
 
-    release = AppUpdateRelease(
-        app_id=app_id,
-        version=version,
-        bundle_url=bundle_url,
-        checksum=checksum,
-        release_notes=release_notes,
-        is_mandatory=is_mandatory,
-        is_active=True,
-    )
-    db.add(release)
-    db.commit()
-    db.refresh(release)
+    await run_in_threadpool(activate_release)
 
     return {
         "status": "published",

@@ -5,12 +5,15 @@ from pathlib import Path
 
 import httpx
 from fastapi import UploadFile, HTTPException
+from starlette.concurrency import run_in_threadpool
 
+from app.core.compressor import MAX_DIMENSION, compress_image
 from app.core.config import settings
 
 UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent / "uploads"
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
+# Raw upload cap; compress_image shrinks what is actually stored.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 def ensure_upload_dirs() -> None:
@@ -108,24 +111,21 @@ async def save_upload(
     file: UploadFile,
     folder: str,
     max_bytes: int = MAX_UPLOAD_BYTES,
+    max_dimension: int = MAX_DIMENSION,
 ) -> str:
     """
-    Persist an uploaded image.
+    Persist an uploaded image, compressed to JPEG (or PNG when transparent).
     Returns:
       - local:  /uploads/...
       - bunny:  https://lalganjeats-cdn.b-cdn.net/...
     """
     content = await file.read()
-    ext = _validate_and_read(file, content, max_bytes)
-    filename = f"{uuid.uuid4().hex}{ext}"
+    _validate_and_read(file, content, max_bytes)
+    compressed = await run_in_threadpool(compress_image, content, max_dimension)
+    filename = f"{uuid.uuid4().hex}{compressed.extension}"
     folder = folder.strip("/").replace("\\", "/")
 
     if settings.STORAGE_BACKEND == "bunny":
-        return await _save_bunny(
-            folder,
-            filename,
-            content,
-            file.content_type or "application/octet-stream",
-        )
+        return await _save_bunny(folder, filename, compressed.content, compressed.content_type)
 
-    return await _save_local(folder, filename, content)
+    return await _save_local(folder, filename, compressed.content)

@@ -3,7 +3,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.modules.restaurants import service
+from app.modules.banners import service as banner_service
+from app.modules.restaurants import product_search, service
 from app.modules.restaurants.models import (
     CatalogSubcategory,
     MenuItem,
@@ -38,6 +39,7 @@ def search_restaurants(
     q: str = Query(..., min_length=2, max_length=80, description="Dish or food name"),
     lat: float | None = Query(None, ge=-90, le=90),
     lng: float | None = Query(None, ge=-180, le=180),
+    category_id: int | None = Query(None, ge=1, description="Business category; Food when omitted"),
     db: Session = Depends(get_db),
 ):
     """Public search — restaurants that have a matching menu item near the customer."""
@@ -46,12 +48,79 @@ def search_restaurants(
         q=q,
         customer_lat=lat,
         customer_lng=lng,
+        category_id=category_id,
+    )
+
+
+@router.get("/products/search")
+def search_products(
+    q: str = Query(..., min_length=2, max_length=80, description="Product keywords"),
+    category_id: int = Query(..., ge=1, description="Business category (tab) to search in"),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
+    limit: int = Query(30, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """Public search — products from deliverable stores of one category, best match first."""
+    return product_search.search_products(
+        db,
+        q=q,
+        category_id=category_id,
+        customer_lat=lat,
+        customer_lng=lng,
+        limit=limit,
     )
 
 
 @router.get("/subcategories/featured")
-def featured_subcategories(db: Session = Depends(get_db)):
-    """Admin-curated home-row subcategories (featured + active)."""
+def featured_subcategories(
+    category_id: int | None = Query(None, ge=1, description="Business category; Food when omitted"),
+    db: Session = Depends(get_db),
+):
+    """Admin-curated home-row subcategories (featured + active) of one home tab."""
+    return _subcategory_rows(db, category_id, featured_only=True)
+
+
+@router.get("/categories/{category_id}/subcategories")
+def category_subcategories(category_id: int, db: Session = Depends(get_db)):
+    """Every active subcategory of a business category — featured ones first."""
+    return _subcategory_rows(db, category_id, featured_only=False)
+
+
+@router.get("/products")
+def catalog_products(
+    subcategory_id: int | None = Query(None, ge=1),
+    category_id: int | None = Query(None, ge=1),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
+    db: Session = Depends(get_db),
+):
+    """
+    Public — available products from stores that deliver to the customer:
+    one subcategory, or every product of a business category ("All").
+    """
+    if subcategory_id is None and category_id is None:
+        raise HTTPException(status_code=422, detail="subcategory_id or category_id is required")
+    return product_search.list_catalog_products(
+        db,
+        category_id=category_id,
+        subcategory_id=subcategory_id,
+        customer_lat=lat,
+        customer_lng=lng,
+    )
+
+
+def _subcategory_rows(db: Session, category_id: int | None, *, featured_only: bool) -> list[dict]:
+    resolved = banner_service.resolve_category_id(db, category_id)
+    filters = [
+        CatalogSubcategory.category_id == resolved,
+        CatalogSubcategory.is_active == True,  # noqa: E712
+    ]
+    if featured_only:
+        filters.append(CatalogSubcategory.is_featured == True)  # noqa: E712
+    ordering = [CatalogSubcategory.sort_order, CatalogSubcategory.name]
+    if not featured_only:
+        ordering.insert(0, CatalogSubcategory.is_featured.desc())
     rows = (
         db.query(
             CatalogSubcategory,
@@ -70,20 +139,19 @@ def featured_subcategories(db: Session = Depends(get_db)):
             & (Restaurant.is_active == True)
             & (Restaurant.is_approved == True),
         )
-        .filter(
-            CatalogSubcategory.is_active == True,
-            CatalogSubcategory.is_featured == True,
-        )
+        .filter(*filters)
         .group_by(CatalogSubcategory.id)
-        .order_by(CatalogSubcategory.sort_order, CatalogSubcategory.name)
+        .order_by(*ordering)
         .all()
     )
     return [
         {
             "id": item.id,
+            "category_id": item.category_id,
             "name": item.name,
             "slug": item.slug,
             "image_url": item.image_url,
+            "is_featured": bool(item.is_featured),
             "product_count": product_count,
             "restaurant_count": restaurant_count,
         }

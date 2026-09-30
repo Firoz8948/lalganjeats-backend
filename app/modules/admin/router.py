@@ -9,6 +9,7 @@ from app.modules.admin.routers import (
     orders,
     restaurants,
     settlements,
+    shelves,
     tenant,
 )
 from app.modules.admin.reports.router import router as reports_router
@@ -23,6 +24,7 @@ router.include_router(dashboard.router)
 router.include_router(catalog.router)
 router.include_router(restaurants.router)
 router.include_router(banners.router)
+router.include_router(shelves.router)
 router.include_router(customers.router)
 router.include_router(orders.router)
 router.include_router(settlements.router)

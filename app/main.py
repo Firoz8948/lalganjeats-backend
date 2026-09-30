@@ -26,6 +26,7 @@ from app.modules.restaurants.models import (
 )
 from app.modules.orders.models import Order, OrderItem, DeliveryProfile, DeliveryOffer
 from app.modules.banners.models import HomeBannerSlide
+from app.modules.shelves.models import ProductShelf, ProductShelfItem  # noqa: F401
 from app.modules.payments.models import (
     PaymentSettings, RestaurantEarning, DeliveryEarning,
     Withdrawal, BankAccount, CashRemittance,
@@ -42,6 +43,7 @@ from app.modules.auth.router        import router as auth_router
 from app.modules.superadmin.router  import router as superadmin_router
 from app.modules.admin.router       import router as admin_router
 from app.modules.banners.router     import router as banners_router
+from app.modules.shelves.router     import router as shelves_router
 from app.modules.payments.router    import router as payments_router
 from app.modules.restaurants.router import router as restaurants_router
 from app.modules.hotel_portal.router import router as hotel_portal_router
@@ -97,10 +99,15 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="LalganjEats API", version="1.0.0", lifespan=lifespan)
 
+cors_origin_regex = r"https://.*\.lalganjeats\.com"
+if settings.ENVIRONMENT == "development":
+    # ng serve falls back to a random port when 4200 is busy (several apps run at once).
+    cors_origin_regex += r"|http://(localhost|127\.0\.0\.1)(:\d+)?"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_origin_regex=r"https://.*\.lalganjeats\.com",
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -112,6 +119,7 @@ app.include_router(admin_router)
 app.include_router(promocodes_admin_router)
 app.include_router(promocodes_public_router)
 app.include_router(banners_router)
+app.include_router(shelves_router)
 app.include_router(payments_router)
 app.include_router(restaurants_router)
 app.include_router(hotel_portal_router)
