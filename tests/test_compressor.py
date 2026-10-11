@@ -54,19 +54,33 @@ def test_transparent_png_keeps_transparency():
     rgba.paste((200, 0, 0, 255), (0, 0, 32, 64))
     out = compress_image(_encode(rgba, "PNG"))
     image = _open(out.content).convert("RGBA")
-    assert (out.extension, out.content_type) == (".png", "image/png")
+    assert out.content_type in ("image/png", "image/webp")
     assert image.getpixel((48, 32))[3] == 0
-    assert image.getpixel((8, 32)) == (200, 0, 0, 255)
+    assert image.getpixel((8, 32))[3] == 255
 
 
-def test_transparent_webp_becomes_png():
+def test_transparent_photo_png_becomes_much_smaller_webp():
+    rgba = _photo((400, 400)).convert("RGBA")
+    rgba.putalpha(Image.linear_gradient("L").resize((400, 400)))
+    source = _encode(rgba, "PNG", optimize=True)
+    out = compress_image(source)
+    image = _open(out.content)
+    assert (out.extension, out.content_type) == (".webp", "image/webp")
+    assert image.mode == "RGBA"
+    assert image.getchannel("A").tobytes() == rgba.getchannel("A").tobytes()
+    assert len(out.content) < len(source) / 2
+
+
+def test_transparent_lossless_webp_becomes_lossy_webp():
     rgba = _photo((80, 80)).convert("RGBA")
     rgba.putalpha(Image.linear_gradient("L").resize((80, 80)))
-    out = compress_image(_encode(rgba, "WEBP", lossless=True))
+    source = _encode(rgba, "WEBP", lossless=True)
+    out = compress_image(source)
     image = _open(out.content)
-    assert image.format == "PNG"
+    assert image.format == "WEBP"
     assert image.mode == "RGBA"
     assert image.getchannel("A").getextrema()[0] < 5
+    assert len(out.content) <= len(source)
 
 
 def test_fully_opaque_alpha_png_becomes_jpeg():
@@ -82,10 +96,10 @@ def test_oversized_image_is_downscaled_keeping_aspect_ratio():
     assert image.size == (MAX_DIMENSION, MAX_DIMENSION // 2)
 
 
-def test_oversized_transparent_image_is_downscaled_as_png():
+def test_oversized_transparent_image_is_downscaled_as_webp():
     source = _encode(Image.new("RGBA", (MAX_DIMENSION * 2, MAX_DIMENSION), (10, 120, 60, 0)), "PNG")
     image = _open(compress_image(source).content)
-    assert image.format == "PNG"
+    assert image.format == "WEBP"
     assert image.size == (MAX_DIMENSION, MAX_DIMENSION // 2)
 
 

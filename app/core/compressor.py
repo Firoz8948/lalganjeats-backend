@@ -15,6 +15,12 @@ MAX_DIMENSION = 2560
 # (mostly WebP) that JPEG cannot match in size fall back to the first, best
 # setting: quality is never traded away just to hit a smaller file.
 JPEG_ATTEMPTS = ((88, 0), (88, 2), (85, 2))
+# Transparent images (product cut-outs) keep their alpha as lossy WebP: lossless
+# PNG of a photo stays multi-MB, while WebP 90 with an exact alpha channel is
+# ~80% smaller and visually identical. method 4 encodes ~10x faster than 6 for
+# a ~3% bigger file.
+WEBP_QUALITY = 90
+WEBP_METHOD = 4
 # Refuse absurd pixel counts before decoding (decompression-bomb guard).
 MAX_PIXELS = 60_000_000
 
@@ -36,6 +42,10 @@ def _png(content: bytes) -> CompressedImage:
     return CompressedImage(content, ".png", "image/png")
 
 
+def _webp(content: bytes) -> CompressedImage:
+    return CompressedImage(content, ".webp", "image/webp")
+
+
 def _has_transparency(image: Image.Image) -> bool:
     if image.mode == "P" and "transparency" in image.info:
         image = image.convert("RGBA")
@@ -48,12 +58,12 @@ def compress_image(content: bytes, max_dimension: int = MAX_DIMENSION) -> Compre
     """
     Compress any supported upload (JPG/PNG/WebP).
 
-    Images with transparent areas become optimized lossless PNGs so the
-    transparency survives (JPEG has no alpha channel); everything else becomes
-    a JPEG.     EXIF rotation is applied, the colour profile is preserved, and
-    images are only downscaled beyond max_dimension. Re-encoded files carry no
-    EXIF/GPS metadata. An upload already smaller than its re-encoded form is
-    kept unchanged when it is already in the target format.
+    Images with transparent areas become WebP so the transparency survives
+    (JPEG has no alpha channel); everything else becomes a JPEG. EXIF rotation
+    is applied, the colour profile is preserved, and images are only
+    downscaled beyond max_dimension. Re-encoded files carry no EXIF/GPS
+    metadata. An upload already smaller than its re-encoded form is kept
+    unchanged when it is already in a suitable format.
     """
     try:
         with Image.open(io.BytesIO(content)) as source:
@@ -73,10 +83,20 @@ def compress_image(content: bytes, max_dimension: int = MAX_DIMENSION) -> Compre
         image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
 
     if transparent:
-        encoded = _save(image, "PNG", optimize=True, icc_profile=icc_profile)
-        if source_format == "PNG" and not resized and len(content) <= len(encoded):
-            return _png(content)
-        return _png(encoded)
+        encoded = _save(
+            image,
+            "WEBP",
+            quality=WEBP_QUALITY,
+            alpha_quality=100,
+            method=WEBP_METHOD,
+            icc_profile=icc_profile,
+        )
+        if not resized and len(content) <= len(encoded):
+            if source_format == "PNG":
+                return _png(content)
+            if source_format == "WEBP":
+                return _webp(content)
+        return _webp(encoded)
 
     best_quality = None
     for quality, subsampling in JPEG_ATTEMPTS:
