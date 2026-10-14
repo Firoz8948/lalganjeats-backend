@@ -112,6 +112,12 @@ def run_auto_migrations():
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS collection_online_paid_at TIMESTAMPTZ;",
         "CREATE INDEX IF NOT EXISTS ix_orders_collection_txnid ON orders(collection_txnid) WHERE collection_txnid IS NOT NULL;",
 
+        # Multi-store grocery orders: parent (no restaurant) + one sub-order per store.
+        "ALTER TABLE orders ALTER COLUMN restaurant_id DROP NOT NULL;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS parent_order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE;",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_multi_store BOOLEAN NOT NULL DEFAULT FALSE;",
+        "CREATE INDEX IF NOT EXISTS ix_orders_parent_order_id ON orders(parent_order_id) WHERE parent_order_id IS NOT NULL;",
+
         # Promo audience (all vs new users) + usage tracked by mobile number.
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS audience VARCHAR(20) DEFAULT 'all';",
         "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS restaurant_id INTEGER;",

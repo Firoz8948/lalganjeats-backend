@@ -209,6 +209,10 @@ def start_dispatch(order_id: int) -> None:
         order = db.query(Order).filter(Order.id == order_id).first()
         if not order or not is_open_unassigned_order(order):
             return
+        if order.parent_order_id is not None:
+            # Riders are offered the multi-store parent, never a single store's share.
+            logger.info("Skip dispatch for sub-order %s (parent %s)", order.id, order.parent_order_id)
+            return
 
         r_lat, r_lng = _restaurant_coords(order)
         partners = _broadcast_partners(db, order)

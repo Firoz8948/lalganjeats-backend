@@ -14,6 +14,7 @@ from app.core import sms
 logger = logging.getLogger(__name__)
 from app.core.maps import COOK_BUFFER_MIN, drive_minutes_for_km
 from app.modules.orders.models import Order, OrderItem
+from app.modules.orders.numbering import order_sequence
 from app.modules.orders.schemas import PlaceOrderRequest
 from app.modules.restaurants.models import Restaurant, MenuItem, MenuItemVariant
 from app.modules.restaurants.service import (
@@ -73,10 +74,8 @@ def _next_order_number(db: Session) -> str:
     )
     seq = 1
     if last and last.order_number:
-        try:
-            seq = int(last.order_number.split("-")[-1]) + 1
-        except ValueError:
-            seq = random.randint(1000, 9999)
+        parsed = order_sequence(last.order_number)
+        seq = parsed + 1 if parsed else random.randint(1000, 9999)
     return f"{prefix}{seq:05d}"
 
 
@@ -118,59 +117,47 @@ def _sms_customer_name(db: Session, customer: User) -> str:
     return name.split()[0]
 
 
-def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict:
-    if payload.payment_method not in ("cash", "online"):
-        raise HTTPException(400, "payment_method must be cash or online")
-    if not payload.items:
-        raise HTTPException(400, "Cart is empty")
+def apply_customer_name(db: Session, customer: User, customer_name: str | None) -> None:
+    if not (customer_name and customer_name.strip()):
+        return
+    new_name = customer_name.strip()
+    current_name = (customer.full_name or "").strip()
+    if new_name == current_name:
+        return
+    customer.full_name = new_name
+    from app.modules.users.models import CustomerProfile
 
-    if payload.customer_name and payload.customer_name.strip():
-        new_name = payload.customer_name.strip()
-        current_name = (customer.full_name or "").strip()
-        if new_name != current_name:
-            customer.full_name = new_name
-            from app.modules.users.models import CustomerProfile
-
-            prof = (
-                db.query(CustomerProfile)
-                .filter(CustomerProfile.user_id == customer.id)
-                .first()
-            )
-            if prof:
-                prof.full_name = new_name
-            else:
-                prof = CustomerProfile(
-                    user_id=customer.id,
-                    phone=customer.phone,
-                    full_name=new_name,
-                )
-                db.add(prof)
-
-    restaurant = (
-        db.query(Restaurant)
-        .options(
-            joinedload(Restaurant.tenant).joinedload(Tenant.zones),
-            joinedload(Restaurant.tenant).joinedload(Tenant.delivery_exceptions),
-        )
-        .filter(
-            Restaurant.id == payload.restaurant_id,
-            Restaurant.is_active == True,
-            Restaurant.is_approved == True,
-        )
+    prof = (
+        db.query(CustomerProfile)
+        .filter(CustomerProfile.user_id == customer.id)
         .first()
     )
-    if not restaurant:
-        raise HTTPException(404, "Restaurant not found")
-    if not restaurant.is_open:
-        raise HTTPException(400, "Restaurant is closed")
+    if prof:
+        prof.full_name = new_name
+    else:
+        db.add(
+            CustomerProfile(
+                user_id=customer.id,
+                phone=customer.phone,
+                full_name=new_name,
+            )
+        )
 
-    addr_text = payload.delivery_address
-    lat = payload.delivery_latitude
-    lng = payload.delivery_longitude
-    if payload.address_id:
+
+def resolve_delivery_point(
+    db: Session,
+    customer: User,
+    *,
+    address_id: int | None,
+    delivery_address: str | None,
+    lat: float | None,
+    lng: float | None,
+) -> tuple[str, float, float]:
+    addr_text = delivery_address
+    if address_id:
         addr = (
             db.query(Address)
-            .filter(Address.id == payload.address_id, Address.user_id == customer.id)
+            .filter(Address.id == address_id, Address.user_id == customer.id)
             .first()
         )
         if not addr:
@@ -200,16 +187,18 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
             400,
             "Delivery location coordinates are required to verify service area",
         )
-    if not _restaurant_visible_for_customer(restaurant, float(lat), float(lng)):
-        raise HTTPException(
-            400,
-            "This restaurant is outside your delivery area. Choose a closer location.",
-        )
+    return addr_text, float(lat), float(lng)
 
+
+def build_line_rows(
+    db: Session, restaurant: Restaurant, items
+) -> tuple[list[tuple], float, float]:
+    """(rows, display_total, actual_total); each row is
+    (menu_item, display_price, actual_price, qty, line_subtotal, variant_id, variant_label)."""
     display_total = 0.0
     actual_total = 0.0
     line_rows: list[tuple] = []
-    for line in payload.items:
+    for line in items:
         mi = (
             db.query(MenuItem)
             .filter(
@@ -239,9 +228,68 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
         line_rows.append(
             (mi, display_price, actual_price, line.quantity, sub, variant_id, variant_label)
         )
+    return line_rows, round(display_total, 2), round(actual_total, 2)
 
-    display_total = round(display_total, 2)
-    actual_total = round(actual_total, 2)
+
+def add_order_items(db: Session, order: Order, line_rows: list[tuple]) -> None:
+    for mi, d_price, a_price, qty, sub, variant_id, variant_label in line_rows:
+        db.add(
+            OrderItem(
+                order_id=order.id,
+                menu_item_id=mi.id,
+                variant_id=variant_id,
+                name=mi.name,
+                variant_label=variant_label,
+                price=Decimal(str(d_price)),
+                display_price=Decimal(str(d_price)),
+                actual_price=Decimal(str(a_price)),
+                quantity=qty,
+                subtotal=Decimal(str(sub)),
+            )
+        )
+
+
+def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict:
+    if payload.payment_method not in ("cash", "online"):
+        raise HTTPException(400, "payment_method must be cash or online")
+    if not payload.items:
+        raise HTTPException(400, "Cart is empty")
+
+    apply_customer_name(db, customer, payload.customer_name)
+
+    restaurant = (
+        db.query(Restaurant)
+        .options(
+            joinedload(Restaurant.tenant).joinedload(Tenant.zones),
+            joinedload(Restaurant.tenant).joinedload(Tenant.delivery_exceptions),
+        )
+        .filter(
+            Restaurant.id == payload.restaurant_id,
+            Restaurant.is_active == True,
+            Restaurant.is_approved == True,
+        )
+        .first()
+    )
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    if not restaurant.is_open:
+        raise HTTPException(400, "Restaurant is closed")
+
+    addr_text, lat, lng = resolve_delivery_point(
+        db,
+        customer,
+        address_id=payload.address_id,
+        delivery_address=payload.delivery_address,
+        lat=payload.delivery_latitude,
+        lng=payload.delivery_longitude,
+    )
+    if not _restaurant_visible_for_customer(restaurant, float(lat), float(lng)):
+        raise HTTPException(
+            400,
+            "This restaurant is outside your delivery area. Choose a closer location.",
+        )
+
+    line_rows, display_total, actual_total = build_line_rows(db, restaurant, payload.items)
 
     tenant = restaurant.tenant
 
@@ -381,21 +429,7 @@ def place_order(db: Session, customer: User, payload: PlaceOrderRequest) -> dict
     db.add(order)
     db.flush()
 
-    for mi, d_price, a_price, qty, sub, variant_id, variant_label in line_rows:
-        db.add(
-            OrderItem(
-                order_id=order.id,
-                menu_item_id=mi.id,
-                variant_id=variant_id,
-                name=mi.name,
-                variant_label=variant_label,
-                price=Decimal(str(d_price)),
-                display_price=Decimal(str(d_price)),
-                actual_price=Decimal(str(a_price)),
-                quantity=qty,
-                subtotal=Decimal(str(sub)),
-            )
-        )
+    add_order_items(db, order, line_rows)
 
     if payload.promo_code:
         from app.modules.promocodes.service import apply_promo_to_order

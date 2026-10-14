@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Rider app sends its GPS to us this often while an order is picked up.
     RIDER_LOCATION_INTERVAL_SECONDS: int = 120
     SMS_BRAND_NAME: str = "LalganjEats"
+    # Grocery carts spanning several stores (one rider, one payment).
+    MULTI_STORE_ORDERS_ENABLED: bool = False
+    MULTI_STORE_MAX_STORES: int = 4
     DELIVERY_OFFER_WAIT_SECONDS: int = 10
     # Re-ring riders until someone accepts an order (0 reminders disables).
     DELIVERY_OFFER_REMINDER_SECONDS: int = 60

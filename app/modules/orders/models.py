@@ -18,7 +18,14 @@ class Order(Base):
         nullable=True, index=True,
     )
     customer_id         = Column(Integer, ForeignKey("users.id"), nullable=False)
-    restaurant_id       = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    # NULL only on a multi-store (grocery) parent order; every store's share
+    # lives in a sub-order whose parent_order_id points at the parent.
+    restaurant_id       = Column(Integer, ForeignKey("restaurants.id"), nullable=True)
+    parent_order_id     = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=True, index=True,
+    )
+    is_multi_store      = Column(Boolean, default=False, nullable=False)
     delivery_partner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status              = Column(String(30), default="pending")
     # pending → accepted → ready → picked_up → delivered | cancelled
@@ -86,6 +93,12 @@ class Order(Base):
     delivery_partner = relationship("User", foreign_keys=[delivery_partner_id],
                                     back_populates="orders_as_delivery")
     restaurant       = relationship("Restaurant", back_populates="orders")
+    parent_order     = relationship(
+        "Order", remote_side=[id], back_populates="sub_orders"
+    )
+    sub_orders       = relationship(
+        "Order", back_populates="parent_order", order_by="Order.id"
+    )
     items            = relationship("OrderItem", back_populates="order",
                                     cascade="all, delete-orphan")
     restaurant_earning = relationship(

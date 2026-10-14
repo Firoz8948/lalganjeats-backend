@@ -48,12 +48,9 @@ def delivered_revenue_filters(tenant_id: int | None):
 
 
 def sequence_from_order_number(order_number: str | None) -> int:
-    if not order_number:
-        return 0
-    try:
-        return int(str(order_number).rsplit("-", 1)[-1])
-    except (TypeError, ValueError):
-        return 0
+    from app.modules.orders.numbering import order_sequence
+
+    return order_sequence(order_number)
 
 
 def latest_order_sequence(db: Session, tenant_id: int | None = None) -> int:

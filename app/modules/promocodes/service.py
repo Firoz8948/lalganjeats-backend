@@ -554,7 +554,9 @@ def validate_promo(
     current_user: User | None = None,
     exclude_order_id: int | None = None,
     device_id: str | None = None,
+    category_id: int | None = None,
 ) -> PromoValidateResponse:
+    """`category_id` stands in for the store's category on multi-store carts."""
     promo = repo.get_by_code(db, payload.code, tenant_id)
     if not promo:
         # Fallback: try global lookup if tenant-scoped miss
@@ -617,8 +619,12 @@ def validate_promo(
             channel=promo.channel,
         )
 
+    cart_restaurant_id = getattr(payload, "restaurant_id", None)
     if getattr(promo, "business_category_id", None) and _category_mismatch(
-        promo, _restaurant_category_id(db, getattr(payload, "restaurant_id", None))
+        promo,
+        _restaurant_category_id(db, cart_restaurant_id)
+        if cart_restaurant_id is not None
+        else category_id,
     ):
         return PromoValidateResponse(
             valid=False,
@@ -693,6 +699,7 @@ def apply_promo_to_order(
     client_channel: str,
     tenant_id: int | None = None,
     device_id: str | None = None,
+    category_id: int | None = None,
 ) -> PromoValidateResponse:
     """
     Call when an order is placed. Validates, writes order snapshot,
@@ -716,6 +723,7 @@ def apply_promo_to_order(
         current_user=customer,
         exclude_order_id=order.id,
         device_id=device_id,
+        category_id=category_id,
     )
     if not result.valid:
         return result

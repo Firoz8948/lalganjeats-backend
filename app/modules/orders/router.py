@@ -4,7 +4,14 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_customer, get_current_user
-from app.modules.orders.schemas import PlaceOrderRequest, PlaceOrderResponse
+from app.modules.orders.schemas import (
+    MultiStoreQuoteResponse,
+    PlaceMultiStoreOrderRequest,
+    PlaceMultiStoreOrderResponse,
+    PlaceOrderRequest,
+    PlaceOrderResponse,
+)
+from app.modules.orders import multi_store
 from app.modules.orders import service as order_service
 from app.modules.orders.models import Order
 
@@ -18,6 +25,26 @@ def create_order(
     current_user=Depends(get_customer),
 ):
     return order_service.place_order(db, current_user, payload)
+
+
+@router.post("/multi-store/quote", response_model=MultiStoreQuoteResponse)
+def quote_multi_store_order(
+    payload: PlaceMultiStoreOrderRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_customer),
+):
+    """Grocery-only: price a cart spanning several stores without placing it."""
+    return multi_store.quote_multi_store_order(db, current_user, payload)
+
+
+@router.post("/multi-store", response_model=PlaceMultiStoreOrderResponse)
+def create_multi_store_order(
+    payload: PlaceMultiStoreOrderRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_customer),
+):
+    """Grocery-only: one parent order + one sub-order per store."""
+    return multi_store.place_multi_store_order(db, current_user, payload)
 
 
 @router.get("/{order_id}")
