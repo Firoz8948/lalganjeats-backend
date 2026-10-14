@@ -76,7 +76,7 @@ def test_validate_min_cart_rejects(monkeypatch):
     monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
 
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(
             code="FLAT50",
             client_channel="web",
@@ -87,7 +87,7 @@ def test_validate_min_cart_rejects(monkeypatch):
     assert result.valid is False
     assert result.reason == "min_cart"
     assert "129" in result.message
-    assert "above" in result.message.lower()
+    assert "₹29 more" in result.message
 
 
 def test_validate_flat_applies_when_cart_ok(monkeypatch):
@@ -103,7 +103,7 @@ def test_validate_flat_applies_when_cart_ok(monkeypatch):
     monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
 
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(
             code="FLAT50",
             client_channel="web",
@@ -126,7 +126,7 @@ def test_validate_rejects_repeat_use_same_mobile(monkeypatch):
 
     user = SimpleNamespace(id=54, phone="9876543210")
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(code="LALGANJ39", client_channel="web"),
         current_user=user,
     )
@@ -147,7 +147,7 @@ def test_validate_rejects_existing_customer_for_new_users(monkeypatch):
 
     user = SimpleNamespace(id=54, phone="9876543210")
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(code="WELCOME", client_channel="web"),
         current_user=user,
     )
@@ -189,7 +189,7 @@ def test_list_public_hides_new_user_coupon_when_not_eligible(monkeypatch):
     )
 
     rows = promo_service.list_public_active_promos(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         current_user=SimpleNamespace(id=9, phone="9999999999"),
     )
     assert [row["code"] for row in rows] == ["SAVE10"]
@@ -207,7 +207,7 @@ def test_validate_rejects_new_user_coupon_on_same_device(monkeypatch):
     monkeypatch.setattr(promo_service, "_device_used_new_user_coupon", lambda *a, **k: True)
 
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=Req(
             code="100LALGANJ",
             client_channel="web",
@@ -228,7 +228,7 @@ def test_validate_rejects_code_for_other_restaurant(monkeypatch):
     monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
 
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(
             code="HOTNCOOL10",
             client_channel="web",
@@ -248,7 +248,7 @@ def test_validate_allows_code_for_chosen_restaurant(monkeypatch):
     monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
 
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(
             code="HOTNCOOL10",
             client_channel="web",
@@ -278,13 +278,13 @@ def test_list_public_hides_code_for_other_restaurant(monkeypatch):
     )
 
     rows = promo_service.list_public_active_promos(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         restaurant_id=3,
     )
     assert [row["code"] for row in rows] == ["SAVE10"]
 
     matching = promo_service.list_public_active_promos(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         restaurant_id=7,
     )
     assert [row["code"] for row in matching] == ["HOTNCOOL10", "SAVE10"]
@@ -299,7 +299,7 @@ def test_validate_allows_code_for_any_ticked_restaurant(monkeypatch):
 
     for rid in (7, 9, 12):
         result = validate_promo(
-            db=SimpleNamespace(commit=lambda: None),
+            db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
             payload=PromoValidateRequest(
                 code="GROUP4",
                 client_channel="web",
@@ -318,7 +318,7 @@ def test_validate_rejects_code_when_restaurant_not_ticked(monkeypatch):
     monkeypatch.setattr(promo_service, "_maybe_auto_deactivate", lambda db, p: None)
 
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(
             code="GROUP4",
             client_channel="web",
@@ -350,13 +350,13 @@ def test_list_public_shows_only_for_ticked_restaurants(monkeypatch):
     monkeypatch.setattr(promo_service, "_eligibility_error", lambda *a, **k: None)
 
     hidden = promo_service.list_public_active_promos(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         restaurant_id=3,
     )
     assert [row["code"] for row in hidden] == ["SAVE10"]
 
     shown = promo_service.list_public_active_promos(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         restaurant_id=9,
     )
     assert [row["code"] for row in shown] == ["GROUP4", "SAVE10"]
@@ -375,7 +375,7 @@ def test_validate_allows_repeat_use_for_all_time(monkeypatch):
 
     user = SimpleNamespace(id=54, phone="9876543210")
     result = validate_promo(
-        db=SimpleNamespace(commit=lambda: None),
+        db=SimpleNamespace(commit=lambda: None, flush=lambda: None),
         payload=PromoValidateRequest(
             code="ALLTIME20",
             client_channel="web",
