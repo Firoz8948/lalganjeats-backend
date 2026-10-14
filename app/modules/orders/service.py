@@ -20,6 +20,7 @@ from app.modules.restaurants.models import Restaurant, MenuItem, MenuItemVariant
 from app.modules.restaurants.service import (
     _restaurant_visible_for_customer,
     restaurant_road_km_to_customer,
+    subcategory_enabled_filter,
     tenant_road_km_to_customer,
 )
 from app.modules.restaurants.service_area import (
@@ -206,6 +207,7 @@ def build_line_rows(
                 MenuItem.restaurant_id == restaurant.id,
                 MenuItem.is_deleted == False,
                 MenuItem.is_available == True,
+                subcategory_enabled_filter(),
             )
             .first()
         )

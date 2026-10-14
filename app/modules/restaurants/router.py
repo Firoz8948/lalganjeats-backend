@@ -196,6 +196,7 @@ def get_restaurant_menu(restaurant_key: str, db: Session = Depends(get_db)):
             MenuItem.restaurant_id == restaurant_id,
             MenuItem.is_deleted == False,  # noqa: E712
             MenuItem.is_available == True,  # noqa: E712
+            service.subcategory_enabled_filter(),
         )
         .all()
     )

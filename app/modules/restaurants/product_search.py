@@ -17,6 +17,7 @@ from app.modules.restaurants.service import (
     DistanceCache,
     _restaurant_visible_for_customer,
     store_category_filter,
+    subcategory_enabled_filter,
 )
 from app.modules.superadmin.models import Tenant
 
@@ -107,6 +108,7 @@ def search_products(
             Restaurant.is_approved == True,  # noqa: E712
             MenuItem.is_deleted == False,  # noqa: E712
             MenuItem.is_available == True,  # noqa: E712
+            subcategory_enabled_filter(),
             or_(*keyword_filters),
         )
         .limit(MAX_CANDIDATES)
@@ -245,6 +247,7 @@ def sellable_product_filters() -> tuple:
         Restaurant.is_approved == True,  # noqa: E712
         MenuItem.is_deleted == False,  # noqa: E712
         MenuItem.is_available == True,  # noqa: E712
+        subcategory_enabled_filter(),
     )
 
 

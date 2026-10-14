@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from app.core.maps import distance_and_drive_minutes
 from app.core.schedule_hours import format_hhmm, format_opens_at, note_manual_shop_state, parse_hhmm
 from app.modules.auth.credentials import apply_partner_credentials
-from app.modules.restaurants.models import CatalogCategory, MenuItem, Restaurant
+from app.modules.restaurants.models import CatalogCategory, CatalogSubcategory, MenuItem, Restaurant
 from app.modules.restaurants.schemas import (
     RestaurantPublicResponse,
     RestaurantCreateRequest,
@@ -272,6 +272,7 @@ def list_public_restaurants(
                 MenuItem.business_subcategory_id == subcategory_id,
                 MenuItem.is_deleted == False,
                 MenuItem.is_available == True,
+                subcategory_enabled_filter(),
             )
             .distinct()
         )
@@ -302,6 +303,14 @@ def store_category_filter(db: Session, category_id: int | None):
     if target is not None and target == food_id:
         return or_(Restaurant.business_category_id == target, Restaurant.business_category_id.is_(None))
     return Restaurant.business_category_id == target
+
+
+def subcategory_enabled_filter():
+    """Products with no catalog subcategory, or whose subcategory the admin has not disabled."""
+    return or_(
+        MenuItem.business_subcategory_id.is_(None),
+        MenuItem.business_subcategory.has(CatalogSubcategory.is_active == True),  # noqa: E712
+    )
 
 
 def search_restaurants_by_dish(
@@ -337,6 +346,7 @@ def search_restaurants_by_dish(
             Restaurant.is_approved == True,  # noqa: E712
             MenuItem.is_deleted == False,  # noqa: E712
             MenuItem.is_available == True,  # noqa: E712
+            subcategory_enabled_filter(),
             MenuItem.name.ilike(pattern),
         )
         .order_by(Restaurant.is_open.desc(), Restaurant.name.asc(), MenuItem.name.asc())

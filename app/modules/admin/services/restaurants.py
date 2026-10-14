@@ -1,4 +1,5 @@
 from fastapi import HTTPException, Request, UploadFile
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 import secrets
@@ -475,7 +476,10 @@ def update_menu_item(
     if payload.subcategory_id is not None:
         subcategory = db.query(CatalogSubcategory).filter(
             CatalogSubcategory.id == payload.subcategory_id,
-            CatalogSubcategory.is_active == True,
+            or_(
+                CatalogSubcategory.is_active == True,  # noqa: E712
+                CatalogSubcategory.id == item.business_subcategory_id,
+            ),
         ).first()
         if not subcategory:
             raise HTTPException(400, "Invalid subcategory")
