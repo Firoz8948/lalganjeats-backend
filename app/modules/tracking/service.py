@@ -7,6 +7,7 @@ from app.core.maps import approx_road_km, drive_minutes_for_km, maps_pin_url
 from app.modules.users.models import User
 from app.modules.getlocation import repository as loc_repo
 from app.modules.tracking.schemas import LatLng, TrackOrderOut, TrackingPublicConfig
+from app.modules.delivery_partner.schemas import DeliveryPartnerPublic
 from app.modules.delivery_partner.service import serialize_public_identity
 from app.modules.orders.status_meta import customer_status_meta
 
@@ -116,7 +117,8 @@ def get_track_snapshot(
     if not order.delivery_partner_id:
         return base
 
-    base.delivery_partner = serialize_public_identity(order.delivery_partner)
+    identity = serialize_public_identity(order.delivery_partner)
+    base.delivery_partner = DeliveryPartnerPublic(**identity) if identity else None
     base.delivery_partner_id = order.delivery_partner_id
 
     if order.status not in TRACKABLE:
