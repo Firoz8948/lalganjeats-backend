@@ -27,6 +27,18 @@ def create_order(
     return order_service.place_order(db, current_user, payload)
 
 
+@router.get("/multi-store/config")
+def multi_store_config():
+    """Public switch the customer app reads before letting grocery carts span stores."""
+    from app.core.config import settings
+
+    return {
+        "enabled": bool(settings.MULTI_STORE_ORDERS_ENABLED),
+        "max_stores": max(2, int(settings.MULTI_STORE_MAX_STORES or 2)),
+        "category": multi_store.GROCERY_SLUG,
+    }
+
+
 @router.post("/multi-store/quote", response_model=MultiStoreQuoteResponse)
 def quote_multi_store_order(
     payload: PlaceMultiStoreOrderRequest,
