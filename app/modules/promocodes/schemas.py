@@ -26,6 +26,7 @@ class PromoCreateRequest(BaseModel):
     is_public: bool = False
     restaurant_id: Optional[int] = None
     restaurant_ids: list[int] = Field(default_factory=list)
+    business_category_id: Optional[int] = None  # None = all categories
 
     @field_validator("code")
     @classmethod
@@ -67,6 +68,7 @@ class PromoUpdateRequest(BaseModel):
     is_public: Optional[bool] = None
     restaurant_id: Optional[int] = None
     restaurant_ids: Optional[list[int]] = None
+    business_category_id: Optional[int] = None
 
 
 class PromoOut(BaseModel):
@@ -91,6 +93,8 @@ class PromoOut(BaseModel):
     restaurant_name: Optional[str] = None
     restaurant_ids: list[int] = []
     restaurant_names: list[str] = []
+    business_category_id: Optional[int] = None
+    business_category_name: Optional[str] = None
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}

@@ -23,6 +23,59 @@ MSG_ONE_TIME = "APPLICABLE FOR ONE TIME ONLY"
 MSG_NEW_USERS = "APPLICABLE FOR NEW USERS"
 MSG_DEVICE_USED = "This mobile has already used this coupon code"
 MSG_RESTAURANT = "Code not applicable for this restaurant"
+MSG_CATEGORY = "Code not applicable for this category"
+
+
+def _restaurant_category_id(db: Session, restaurant_id: int | None) -> int | None:
+    if restaurant_id is None:
+        return None
+    from app.modules.restaurants.models import Restaurant
+
+    try:
+        rid = int(restaurant_id)
+    except (TypeError, ValueError):
+        return None
+    row = db.query(Restaurant.business_category_id).filter(Restaurant.id == rid).first()
+    return row[0] if row else None
+
+
+def _category_mismatch(promo: PromoCode, restaurant_category_id: int | None) -> bool:
+    """True when the promo is limited to a category the cart's store is not in."""
+    scoped = getattr(promo, "business_category_id", None)
+    if not scoped or restaurant_category_id is None:
+        return False
+    return int(scoped) != int(restaurant_category_id)
+
+
+def _resolve_category_id(db: Session, category_id: int | None) -> int | None:
+    if category_id is None:
+        return None
+    from app.modules.restaurants.models import CatalogCategory
+
+    if not db.query(CatalogCategory.id).filter(CatalogCategory.id == category_id).first():
+        raise HTTPException(400, detail="Category not found")
+    return category_id
+
+
+def _check_restaurants_in_category(
+    db: Session, restaurant_ids: list[int], category_id: int | None
+) -> None:
+    if not category_id or not restaurant_ids:
+        return
+    from app.modules.restaurants.models import Restaurant
+
+    outside = (
+        db.query(Restaurant.name)
+        .filter(Restaurant.id.in_(restaurant_ids))
+        .filter(
+            (Restaurant.business_category_id != category_id)
+            | Restaurant.business_category_id.is_(None)
+        )
+        .all()
+    )
+    if outside:
+        names = ", ".join(row[0] for row in outside)
+        raise HTTPException(400, detail=f"Not in the chosen category: {names}")
 
 
 def _promo_restaurant_ids(promo: PromoCode) -> set[int]:
@@ -311,6 +364,7 @@ def _to_out(promo: PromoCode) -> PromoOut:
             names.append(rest.name)
     if not names and getattr(promo, "restaurant", None) is not None:
         names = [promo.restaurant.name]
+    category = getattr(promo, "business_category", None)
     return PromoOut(
         id=promo.id,
         code=promo.code,
@@ -333,6 +387,8 @@ def _to_out(promo: PromoCode) -> PromoOut:
         restaurant_name=(", ".join(names) if names else None),
         restaurant_ids=ids,
         restaurant_names=names,
+        business_category_id=getattr(promo, "business_category_id", None),
+        business_category_name=category.name if category is not None else None,
         created_at=promo.created_at,
     )
 
@@ -354,12 +410,18 @@ def list_public_active_promos(
     restaurant_id: int | None = None,
 ) -> list[dict]:
     rows = []
+    category_cache: dict[str, int | None] = {}
     for promo in repo.list_public_active(db, tenant_id):
         _maybe_auto_deactivate(db, promo)
         if _is_expired(promo) or not promo.is_active:
             continue
         if _restaurant_mismatch(promo, restaurant_id):
             continue
+        if getattr(promo, "business_category_id", None):
+            if "id" not in category_cache:
+                category_cache["id"] = _restaurant_category_id(db, restaurant_id)
+            if _category_mismatch(promo, category_cache["id"]):
+                continue
         if _eligibility_error(db, promo, current_user, device_id=device_id):
             continue
         rows.append(
@@ -389,6 +451,8 @@ def create_promo(
     existing = repo.get_by_code(db, payload.code, tenant_id)
     if existing:
         raise HTTPException(400, detail="Promocode already exists")
+    category_id = _resolve_category_id(db, payload.business_category_id)
+    _check_restaurants_in_category(db, _ids_from_payload(payload), category_id)
 
     promo = PromoCode(
         tenant_id=tenant_id,
@@ -407,6 +471,7 @@ def create_promo(
         is_public=bool(payload.is_public),
         description=payload.description,
         restaurant_id=None,
+        business_category_id=category_id,
     )
     repo.create(db, promo)
     _set_promo_restaurants(db, promo, tenant_id, _ids_from_payload(payload))
@@ -448,6 +513,9 @@ def update_promo(
                 promo.is_active = False
         del data["max_uses"]
 
+    if "business_category_id" in data:
+        promo.business_category_id = _resolve_category_id(db, data.pop("business_category_id"))
+
     if "restaurant_ids" in data or "restaurant_id" in data:
         ids = data.pop("restaurant_ids", None)
         if ids is None:
@@ -455,6 +523,7 @@ def update_promo(
             ids = [single] if single is not None else []
         else:
             data.pop("restaurant_id", None)
+        _check_restaurants_in_category(db, ids, promo.business_category_id)
         _set_promo_restaurants(db, promo, tenant_id, ids)
 
     if "restaurant_id" in data:
@@ -544,6 +613,17 @@ def validate_promo(
             valid=False,
             reason="restaurant",
             message=MSG_RESTAURANT,
+            code=promo.code,
+            channel=promo.channel,
+        )
+
+    if getattr(promo, "business_category_id", None) and _category_mismatch(
+        promo, _restaurant_category_id(db, getattr(payload, "restaurant_id", None))
+    ):
+        return PromoValidateResponse(
+            valid=False,
+            reason="category",
+            message=MSG_CATEGORY,
             code=promo.code,
             channel=promo.channel,
         )

@@ -45,6 +45,11 @@ class PromoCode(Base):
         Integer, ForeignKey("restaurants.id", ondelete="SET NULL"),
         nullable=True, index=True,
     )
+    # Business category scope (restaurant / grocery / …). NULL = all categories.
+    business_category_id = Column(
+        Integer, ForeignKey("catalog_categories.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
     updated_at       = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -53,6 +58,7 @@ class PromoCode(Base):
         cascade="all, delete-orphan",
     )
     restaurant = relationship("Restaurant", foreign_keys=[restaurant_id])
+    business_category = relationship("CatalogCategory")
     restaurant_links = relationship(
         "PromoCodeRestaurant",
         back_populates="promo",

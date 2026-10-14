@@ -125,6 +125,8 @@ def run_auto_migrations():
         "ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_label VARCHAR(40);",
         "CREATE INDEX IF NOT EXISTS idx_order_items_variant ON order_items(variant_id);",
         "CREATE INDEX IF NOT EXISTS ix_promo_codes_restaurant_id ON promo_codes(restaurant_id);",
+        "ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS business_category_id INTEGER REFERENCES catalog_categories(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_promo_codes_business_category_id ON promo_codes(business_category_id);",
         """
         CREATE TABLE IF NOT EXISTS promo_code_restaurants (
             id SERIAL PRIMARY KEY,
