@@ -22,6 +22,12 @@ from app.core.database import SessionLocal
 from app.core.maps import approx_road_km, haversine_km, maps_directions_url
 from app.core import sms
 from app.modules.orders.models import Order, DeliveryProfile, DeliveryOffer
+from app.modules.orders.multi_store_lifecycle import (
+    order_lines,
+    pickup_restaurants,
+    restaurant_label,
+    shown_sub_orders,
+)
 from app.modules.users.models import User
 from app.modules.delivery import webhook as dp_webhook
 
@@ -46,11 +52,15 @@ def is_open_unassigned_order(order) -> bool:
         return False
     if getattr(order, "delivery_partner_id", None):
         return False
+    # Riders are offered the multi-store parent, never a single store's share.
+    if getattr(order, "parent_order_id", None):
+        return False
     return getattr(order, "status", None) in OPEN_DISPATCH_STATUSES
 
 
 def _restaurant_coords(order: Order):
-    r = order.restaurant
+    pickups = pickup_restaurants(order)
+    r = pickups[0] if pickups else None
     if not r or r.latitude is None or r.longitude is None:
         return None, None
     return float(r.latitude), float(r.longitude)
@@ -209,10 +219,6 @@ def start_dispatch(order_id: int) -> None:
         order = db.query(Order).filter(Order.id == order_id).first()
         if not order or not is_open_unassigned_order(order):
             return
-        if order.parent_order_id is not None:
-            # Riders are offered the multi-store parent, never a single store's share.
-            logger.info("Skip dispatch for sub-order %s (parent %s)", order.id, order.parent_order_id)
-            return
 
         r_lat, r_lng = _restaurant_coords(order)
         partners = _broadcast_partners(db, order)
@@ -242,7 +248,7 @@ def _push_offer(order: Order, partners, *, reminder: bool = False) -> None:
         return
     try:
         from app.core.fcm import DP_OFFER_CHANNEL, send_multicast_push
-        r_name = order.restaurant.name if order.restaurant else "Restaurant"
+        r_name = restaurant_label(order) or "Restaurant"
         if reminder:
             title = "Order still waiting for a rider!"
             body = f"Pickup at {r_name}. Order #{order.order_number}. Accept now!"
@@ -430,7 +436,8 @@ def serialize_offer_order(
     *,
     for_list: bool = False,
 ) -> dict:
-    r = order.restaurant
+    pickups = pickup_restaurants(order)
+    r = pickups[0] if pickups else None
     r_lat = float(r.latitude) if r and r.latitude is not None else None
     r_lng = float(r.longitude) if r and r.longitude is not None else None
     c_lat = float(order.delivery_latitude) if order.delivery_latitude is not None else None
@@ -498,12 +505,40 @@ def serialize_offer_order(
     # Name/phone only after this partner has accepted (not on incoming offers).
     customer = getattr(order, "customer", None) if order.delivery_partner_id else None
 
+    is_multi = bool(getattr(order, "is_multi_store", False))
+    stops = []
+    if is_multi:
+        for sub in shown_sub_orders(order):
+            sr = sub.restaurant
+            s_lat = float(sr.latitude) if sr and sr.latitude is not None else None
+            s_lng = float(sr.longitude) if sr and sr.longitude is not None else None
+            stops.append({
+                "order_id": sub.id,
+                "order_number": sub.order_number,
+                "status": sub.status,
+                "restaurant": sr.name if sr else None,
+                "restaurant_address": sr.address if sr else None,
+                "restaurant_phone": sr.phone if sr else None,
+                "restaurant_lat": s_lat,
+                "restaurant_lng": s_lng,
+                "map_to_restaurant": (
+                    maps_directions_url(s_lat, s_lng)
+                    if s_lat is not None and not for_list
+                    else None
+                ),
+                "items": [serialize_order_item(i) for i in (sub.items or [])],
+            })
+
     return {
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
-        "restaurant": r.name if r else None,
-        "restaurant_address": r.address if r else None,
+        "is_multi_store": is_multi,
+        "pickups": stops,
+        "restaurant": restaurant_label(order),
+        "restaurant_address": (
+            " → ".join(p.address or p.name for p in pickups) if is_multi else (r.address if r else None)
+        ),
         "restaurant_lat": r_lat,
         "restaurant_lng": r_lng,
         "delivery_address": order.delivery_address,
@@ -548,5 +583,5 @@ def serialize_offer_order(
             if (getattr(order, "delivery_otp_verified_at", None) or getattr(order, "delivered_at", None) or order.created_at)
             else None
         ),
-        "items": [serialize_order_item(i) for i in (order.items or [])],
+        "items": [serialize_order_item(i) for i in order_lines(order)],
     }

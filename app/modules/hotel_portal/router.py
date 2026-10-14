@@ -25,6 +25,8 @@ def _serialize_order(o: Order) -> dict:
     from app.modules.delivery_partner.service import serialize_public_identity
 
     partner = o.delivery_partner
+    if partner is None and o.parent_order_id and o.parent_order is not None:
+        partner = o.parent_order.delivery_partner
     partner_public = serialize_public_identity(partner)
     bike = None
     bike_name = None
@@ -68,6 +70,8 @@ def _serialize_order(o: Order) -> dict:
         "customer":         o.customer.full_name if o.customer else None,
         "delivery_address": o.delivery_address,
         "delivery_partner": partner_public,
+        # One rider collects this with other stores' parts of the same order.
+        "is_multi_store_part": o.parent_order_id is not None,
         "created_at":       o.created_at.isoformat(),
         "items":            items_list,
     }
@@ -476,6 +480,23 @@ def update_order_status(
         raise HTTPException(400, "Only pending orders can be accepted")
     if payload.status == "ready" and prev not in ("accepted", "ready"):
         raise HTTPException(400, "Order must be accepted before marking ready")
+
+    if order.parent_order_id is not None:
+        # Part of a multi-store grocery order: the parent owns rider + money.
+        from app.modules.orders.multi_store_lifecycle import (
+            cancel_store_share,
+            on_sub_order_status_changed,
+        )
+
+        if payload.status == "cancelled":
+            if prev == "cancelled":
+                return {"status": order.status}
+            cancel_store_share(db, order, "Cancelled by store")
+        else:
+            order.status = payload.status
+            db.commit()
+        on_sub_order_status_changed(db, order)
+        return {"status": order.status}
 
     order.status = payload.status
     db.commit()

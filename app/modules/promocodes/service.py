@@ -805,6 +805,8 @@ def get_usages(
     if not promo:
         raise HTTPException(404, detail="Promocode not found")
 
+    from app.modules.orders.multi_store_lifecycle import order_lines, restaurant_label
+
     rows = []
     for u in repo.list_usages(db, promo_id):
         order = u.order
@@ -817,7 +819,7 @@ def get_usages(
                 price=i.price,
                 subtotal=i.subtotal,
             )
-            for i in (order.items or [])
+            for i in order_lines(order)
         ]
         customer = u.user
         rows.append(
@@ -827,7 +829,7 @@ def get_usages(
                 order_number=order.order_number,
                 customer_name=customer.full_name if customer else None,
                 customer_phone=customer.phone if customer else None,
-                restaurant_name=order.restaurant.name if order.restaurant else None,
+                restaurant_name=restaurant_label(order),
                 discount_amount=u.discount_amount,
                 percent_off_snapshot=u.percent_off_snapshot,
                 discount_type_snapshot=getattr(u, "discount_type_snapshot", None),

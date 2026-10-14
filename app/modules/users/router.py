@@ -248,7 +248,9 @@ def get_my_orders(
     current_user: User = Depends(get_customer)
 ):
     query = db.query(Order).filter(
-        Order.customer_id == current_user.id
+        Order.customer_id == current_user.id,
+        # A multi-store order is shown once, as its parent.
+        Order.parent_order_id.is_(None),
     ).filter(customer_visible_sql_filter(Order))
 
     if filter == "active":
@@ -268,9 +270,15 @@ def get_my_orders(
     from app.modules.otp.service import customer_visible_delivery_otp
     from app.modules.orders.payment_state import payment_failed
     from app.modules.orders.status_meta import customer_status_meta
+    from app.modules.orders.multi_store_lifecycle import (
+        order_lines,
+        restaurant_label,
+        shown_sub_orders,
+    )
 
     result = []
     for o in orders:
+        store_label = restaurant_label(o)
         partner = o.delivery_partner
         partner_public = serialize_public_identity(partner)
         bike = None
@@ -282,15 +290,24 @@ def get_my_orders(
             "id":             o.id,
             "order_number":   o.order_number,
             "restaurant_id":  o.restaurant_id,
-            "restaurant_name": o.restaurant.name
-                              if o.restaurant else "Unknown",
+            "restaurant_name": store_label or "Unknown",
+            "is_multi_store": bool(o.is_multi_store),
+            "stores": [
+                {
+                    "order_number": s.order_number,
+                    "restaurant_name": s.restaurant.name if s.restaurant else None,
+                    "status": s.status,
+                }
+                for s in (shown_sub_orders(o) if o.is_multi_store else [])
+            ],
+            "refunded_amount": float(o.refunded_amount or 0),
             "status":         o.status,
             "status_meta":    (
                 "Payment failed"
                 if payment_failed(o)
                 else customer_status_meta(
                     o.status,
-                    restaurant_name=o.restaurant.name if o.restaurant else None,
+                    restaurant_name=store_label,
                     delivery_partner_name=partner.full_name if partner else None,
                     bike_number=bike,
                     bike_name=bike_name,
@@ -313,7 +330,7 @@ def get_my_orders(
                     "quantity": i.quantity,
                     "subtotal": float(i.subtotal),
                 }
-                for i in o.items
+                for i in order_lines(o)
             ],
             "created_at": o.created_at.isoformat(),
         })

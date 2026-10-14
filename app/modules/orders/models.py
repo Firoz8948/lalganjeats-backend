@@ -26,6 +26,8 @@ class Order(Base):
         nullable=True, index=True,
     )
     is_multi_store      = Column(Boolean, default=False, nullable=False)
+    # Online money returned after a store in a multi-store order cancelled.
+    refunded_amount     = Column(DECIMAL(10, 2), nullable=True)
     delivery_partner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status              = Column(String(30), default="pending")
     # pending → accepted → ready → picked_up → delivered | cancelled

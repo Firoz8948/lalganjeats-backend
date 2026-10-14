@@ -37,8 +37,10 @@ def serialize_order_item(item: Any) -> dict:
 
 def serialize_ordered_items(order: Any) -> list[dict]:
     """Short item list for live-order screens: 2× Butter Chicken (Full)."""
+    from app.modules.orders.multi_store_lifecycle import order_lines
+
     rows: list[dict] = []
-    for item in getattr(order, "items", None) or []:
+    for item in order_lines(order):
         qty = int(getattr(item, "quantity", 1) or 1)
         name = (getattr(item, "name", None) or "Item").strip()
         variant = (getattr(item, "variant_label", None) or "").strip()

@@ -31,7 +31,9 @@ def compose_revenue_rows(*, orders, remittances, customer_totals: dict | None = 
         partner = order.delivery_partner
         partner_name = partner.full_name if partner else None
         customer_name = order.customer.full_name if order.customer else None
-        restaurant = order.restaurant.name if order.restaurant else None
+        from app.modules.orders.multi_store_lifecycle import restaurant_label
+
+        restaurant = restaurant_label(order)
         created = order.created_at.isoformat() if order.created_at else None
 
         if online_door > 0:
@@ -124,7 +126,7 @@ def build_revenue_ledger(db: Session, current: User, page: int = 1) -> dict:
             joinedload(Order.delivery_partner),
             joinedload(Order.restaurant),
         )
-        .filter(Order.payment_status == "paid")
+        .filter(Order.payment_status == "paid", Order.parent_order_id.is_(None))
     )
     if current.tenant_id:
         order_q = order_q.filter(Order.tenant_id == current.tenant_id)

@@ -69,10 +69,26 @@ def get_order(
         from fastapi import HTTPException
         raise HTTPException(403, "Not allowed")
 
+    from app.modules.orders.multi_store_lifecycle import (
+        order_lines,
+        restaurant_label,
+        shown_sub_orders,
+    )
+
     payload = {
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
+        "is_multi_store": bool(order.is_multi_store),
+        "stores": [
+            {
+                "order_number": s.order_number,
+                "restaurant": s.restaurant.name if s.restaurant else None,
+                "status": s.status,
+            }
+            for s in (shown_sub_orders(order) if order.is_multi_store else [])
+        ],
+        "refunded_amount": float(order.refunded_amount or 0),
         "payment_method": order.payment_method,
         "payment_status": order.payment_status,
         "total_amount": float(order.total_amount),
@@ -81,11 +97,11 @@ def get_order(
         "delivery_address": order.delivery_address,
         "distance_km": float(order.distance_km) if order.distance_km is not None else None,
         "eta_minutes": order.eta_minutes,
-        "restaurant": order.restaurant.name if order.restaurant else None,
+        "restaurant": restaurant_label(order),
         "customer": order.customer.full_name if order.customer else None,
         "items": [
             {"name": i.name, "quantity": i.quantity, "price": float(i.price)}
-            for i in order.items
+            for i in order_lines(order)
         ],
         "created_at": order.created_at.isoformat() if order.created_at else None,
     }

@@ -48,7 +48,23 @@ def mark_prepaid_failed(order: Any) -> bool:
     order.payment_status = "failed"
     if (getattr(order, "status", None) or "") in ("pending", "awaiting_payment", ""):
         order.status = "cancelled"
+    if getattr(order, "is_multi_store", False):
+        for sub in getattr(order, "sub_orders", None) or []:
+            mark_prepaid_failed(sub)
     return True
+
+
+def sync_sub_order_payment(parent: Any) -> None:
+    """Multi-store: the parent holds the one payment; mirror it on each store's share."""
+    if not getattr(parent, "is_multi_store", False):
+        return
+    for sub in getattr(parent, "sub_orders", None) or []:
+        if (getattr(sub, "status", None) or "") == "cancelled":
+            continue
+        sub.payment_method = parent.payment_method
+        sub.payment_status = parent.payment_status
+        sub.razorpay_order_id = parent.razorpay_order_id
+        sub.razorpay_payment_id = parent.razorpay_payment_id
 
 
 def fulfillment_sql_filter(model):

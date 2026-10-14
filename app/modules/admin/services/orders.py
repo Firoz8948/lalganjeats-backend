@@ -6,11 +6,28 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.modules.orders.item_lines import serialize_ordered_items
 from app.modules.orders.models import DeliveryOffer, DeliveryProfile, Order
+from app.modules.orders.multi_store_lifecycle import pickup_restaurants, restaurant_label
 from app.modules.orders.status_meta import ORDER_STATUSES
 from app.modules.payments.breakdown import breakdown_from_order, display_payment_mode
 from app.modules.payments.models import DeliveryEarning, RestaurantEarning
 from app.modules.payments.service import ensure_payment_settings
 from app.modules.users.models import User
+
+
+def _store_parts(order: Order) -> list[dict]:
+    """Per-store sub-orders of a multi-store order (cancellable one by one)."""
+    if not getattr(order, "is_multi_store", False):
+        return []
+    return [
+        {
+            "id": sub.id,
+            "order_number": sub.order_number,
+            "restaurant": sub.restaurant.name if sub.restaurant else None,
+            "status": sub.status,
+            "subtotal": float(sub.display_total or sub.subtotal or 0),
+        }
+        for sub in (order.sub_orders or [])
+    ]
 
 
 def _order_payment_mode(order: Order) -> dict:
@@ -32,7 +49,7 @@ def get_all_orders(
     query = db.query(Order).options(
         joinedload(Order.customer),
         joinedload(Order.restaurant),
-    )
+    ).filter(Order.parent_order_id.is_(None))
     if current.tenant_id:
         query = query.filter(Order.tenant_id == current.tenant_id)
 
@@ -73,9 +90,9 @@ def get_all_orders(
             "customer": (
                 order.customer.full_name if order.customer else None
             ),
-            "restaurant": (
-                order.restaurant.name if order.restaurant else None
-            ),
+            "restaurant": restaurant_label(order),
+            "is_multi_store": bool(getattr(order, "is_multi_store", False)),
+            "stores": _store_parts(order),
             "status": order.status,
             "total_amount": view.customer.customer_total,
             "discount": float(order.discount or 0),
@@ -178,7 +195,8 @@ def get_order_breakdown(db: Session, current: User, order_id: int):
     return {
         "order_id": order.id,
         "order_number": order.order_number,
-        "restaurant": order.restaurant.name if order.restaurant else None,
+        "restaurant": restaurant_label(order),
+        "stores": _store_parts(order),
         "customer": order.customer.full_name if order.customer else None,
         "status": order.status,
         # Payment (amounts = customer total; source = prepaid / DP QR / DP cash)
@@ -226,6 +244,7 @@ def get_completed_orders_paginated(
     ).filter(
         Order.status == "delivered",
         Order.tenant_id == current.tenant_id,
+        Order.parent_order_id.is_(None),
     )
 
     total = query.count()
@@ -250,8 +269,10 @@ def get_completed_orders_paginated(
                 "payment_method": o.payment_method,
                 "payment_status": o.payment_status,
                 "created_at": o.created_at.isoformat() if o.created_at else None,
-                "restaurant_name": o.restaurant.name if o.restaurant else None,
-                "restaurant_phone": o.restaurant.phone if o.restaurant else None,
+                "restaurant_name": restaurant_label(o),
+                "restaurant_phone": (
+                    pickup_restaurants(o)[0].phone if pickup_restaurants(o) else None
+                ),
                 "delivery_partner_name": o.delivery_partner.full_name if o.delivery_partner else None,
                 "delivery_partner_phone": o.delivery_partner.phone if o.delivery_partner else None,
                 "customer_name": o.customer.full_name if o.customer else None,
@@ -438,8 +459,37 @@ def cancel_order(
             "order_id": order.id,
         }
 
+    admin_identifier = current.full_name or current.phone or f"Admin #{current.id}"
+    reason_text = f"Cancelled by {admin_identifier}" + (
+        f": {reason.strip()}" if reason and reason.strip() else ""
+    )
+
+    if getattr(order, "parent_order_id", None) is not None:
+        # One store's part of a multi-store order: the rest keeps going.
+        from app.modules.orders.multi_store_lifecycle import (
+            cancel_store_share,
+            on_sub_order_status_changed,
+        )
+
+        cancel_store_share(db, order, reason_text)
+        on_sub_order_status_changed(db, order)
+        return {
+            "status": "cancelled",
+            "message": f"{order.order_number} cancelled; the other stores continue",
+            "order_number": order.order_number,
+            "order_id": order.id,
+        }
+
     prev_status = order.status
     order.status = "cancelled"
+
+    for sub in getattr(order, "sub_orders", None) or []:
+        if sub.status != "cancelled":
+            sub.status = "cancelled"
+            db.query(RestaurantEarning).filter(
+                RestaurantEarning.order_id == sub.id,
+                RestaurantEarning.transfer_status.in_(["unsettled", "pending"]),
+            ).delete(synchronize_session=False)
 
     # If it was delivered and delivery partner had earned total_earnings, deduct
     if prev_status == "delivered" and order.delivery_partner_id:
@@ -483,10 +533,6 @@ def cancel_order(
     order.cash_collected = None
 
     # Note down admin cancellation audit
-    admin_identifier = current.full_name or current.phone or f"Admin #{current.id}"
-    reason_text = f"Cancelled by {admin_identifier}" + (
-        f": {reason.strip()}" if reason and reason.strip() else ""
-    )
     if order.notes:
         order.notes = f"{order.notes} | {reason_text}"
     else:

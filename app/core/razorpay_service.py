@@ -216,6 +216,22 @@ def transfer_to_linked_account(
     })
 
 
+def refund_payment(
+    payment_id: str,
+    amount_rupees: float,
+    notes: dict | None = None,
+) -> dict:
+    """Partial refund of a captured payment (amount in rupees)."""
+    client = _get_client()
+    if not client:
+        raise RuntimeError("Razorpay is not configured")
+    return client.payment.refund(payment_id, {
+        "amount": int(round(amount_rupees * 100)),
+        "speed": "normal",
+        "notes": notes or {},
+    })
+
+
 def create_payout(
     fund_account_id: str,
     amount_rupees: float,

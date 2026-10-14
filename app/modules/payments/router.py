@@ -28,6 +28,7 @@ from app.core.security import (
     get_admin,
 )
 from app.modules.orders.models import Order
+from app.modules.orders.payment_state import sync_sub_order_payment
 from app.modules.payments.models import (
     BankAccount,
     DeliveryEarning,
@@ -63,11 +64,163 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/payment", tags=["Payment"])
 
 
+def _record_restaurant_earning(
+    db: Session,
+    *,
+    restaurant: Restaurant,
+    order_id: int,
+    payment_id: str | None,
+    display_total: float,
+    actual_total: float,
+    platform_fee: float,
+    amount: float,
+) -> None:
+    if db.query(RestaurantEarning).filter(RestaurantEarning.order_id == order_id).first():
+        return
+    hotel_bank = (
+        db.query(BankAccount)
+        .filter(
+            BankAccount.user_id == restaurant.owner_id,
+            BankAccount.is_primary == True,
+        )
+        .first()
+    )
+    transfer_id = None
+    status = initial_earning_status()
+    settled_at = None
+    if (
+        hotel_bank
+        and hotel_bank.razorpay_linked_account_id
+        and payment_id
+        and razorpay_configured()
+    ):
+        try:
+            transfer = transfer_to_linked_account(
+                payment_id=payment_id,
+                linked_account_id=hotel_bank.razorpay_linked_account_id,
+                amount_rupees=amount,
+                notes={"order_id": str(order_id), "type": "hotel_earning"},
+            )
+            transfer_id = transfer["items"][0]["id"]
+            status = "settled"
+            settled_at = datetime.now(timezone.utc)
+        except Exception as exc:
+            logger.exception("Hotel transfer failed: %s", exc)
+            status = "failed"
+
+    db.add(
+        RestaurantEarning(
+            restaurant_id=restaurant.id,
+            order_id=order_id,
+            display_price_total=display_total,
+            actual_price_total=actual_total,
+            platform_fee=platform_fee,
+            amount_earned=amount,
+            transfer_status=status,
+            razorpay_transfer_id=transfer_id,
+            settled_at=settled_at,
+        )
+    )
+
+
+def _record_delivery_earning(
+    db: Session,
+    *,
+    partner_id: int,
+    order_id: int,
+    payment_id: str | None,
+    amount: float,
+) -> None:
+    if db.query(DeliveryEarning).filter(DeliveryEarning.order_id == order_id).first():
+        return
+    delivery_bank = (
+        db.query(BankAccount)
+        .filter(
+            BankAccount.user_id == partner_id,
+            BankAccount.is_primary == True,
+        )
+        .first()
+    )
+    transfer_id = None
+    status = initial_earning_status()
+    settled_at = None
+    if (
+        delivery_bank
+        and delivery_bank.razorpay_linked_account_id
+        and payment_id
+        and razorpay_configured()
+    ):
+        try:
+            transfer = transfer_to_linked_account(
+                payment_id=payment_id,
+                linked_account_id=delivery_bank.razorpay_linked_account_id,
+                amount_rupees=amount,
+                notes={"order_id": str(order_id), "type": "delivery_earning"},
+            )
+            transfer_id = transfer["items"][0]["id"]
+            status = "settled"
+            settled_at = datetime.now(timezone.utc)
+        except Exception as exc:
+            logger.exception("Delivery transfer failed: %s", exc)
+            status = "failed"
+
+    db.add(
+        DeliveryEarning(
+            delivery_partner_id=partner_id,
+            order_id=order_id,
+            amount_earned=amount,
+            transfer_status=status,
+            razorpay_transfer_id=transfer_id,
+            settled_at=settled_at,
+        )
+    )
+
+
+def _settle_multi_store(db: Session, parent: Order) -> None:
+    """Each live store sub-order earns its own transfer + packing; the rider
+    earns once, on the parent. Fees on the parent were fixed at checkout."""
+    for sub in parent.sub_orders or []:
+        if sub.status == "cancelled" or sub.restaurant is None:
+            continue
+        actual = round(float(sub.actual_total or 0), 2)
+        packing = round(float(sub.packing_charge or 0), 2)
+        _record_restaurant_earning(
+            db,
+            restaurant=sub.restaurant,
+            order_id=sub.id,
+            payment_id=parent.razorpay_payment_id,
+            display_total=float(sub.display_total or 0),
+            actual_total=actual,
+            platform_fee=0.0,
+            amount=round(actual + packing, 2),
+        )
+
+    if parent.delivery_partner_id:
+        payout = (
+            parent.delivery_partner_earning
+            if parent.delivery_partner_earning is not None
+            else parent.delivery_fee
+        )
+        _record_delivery_earning(
+            db,
+            partner_id=parent.delivery_partner_id,
+            order_id=parent.id,
+            payment_id=parent.razorpay_payment_id,
+            amount=round(float(payout or 0), 2),
+        )
+
+
 def process_payment_split(order_id: int) -> None:
     db = SessionLocal()
     try:
         order = db.query(Order).filter(Order.id == order_id).first()
         if not order:
+            return
+        if order.parent_order_id is not None:
+            order = order.parent_order
+        if order.is_multi_store:
+            _settle_multi_store(db, order)
+            db.commit()
             return
 
         pay_settings = ensure_payment_settings(db)
@@ -101,105 +254,25 @@ def process_payment_split(order_id: int) -> None:
             db.commit()
             return
 
-        existing_hotel = (
-            db.query(RestaurantEarning)
-            .filter(RestaurantEarning.order_id == order_id)
-            .first()
+        _record_restaurant_earning(
+            db,
+            restaurant=restaurant,
+            order_id=order_id,
+            payment_id=order.razorpay_payment_id,
+            display_total=split.display_total,
+            actual_total=split.actual_price_total,
+            platform_fee=split.platform_fee,
+            amount=split.hotel_earning,
         )
-        if not existing_hotel:
-            hotel_bank = (
-                db.query(BankAccount)
-                .filter(
-                    BankAccount.user_id == restaurant.owner_id,
-                    BankAccount.is_primary == True,
-                )
-                .first()
-            )
-            transfer_id = None
-            status = initial_earning_status()
-            settled_at = None
-            if (
-                hotel_bank
-                and hotel_bank.razorpay_linked_account_id
-                and order.razorpay_payment_id
-                and razorpay_configured()
-            ):
-                try:
-                    transfer = transfer_to_linked_account(
-                        payment_id=order.razorpay_payment_id,
-                        linked_account_id=hotel_bank.razorpay_linked_account_id,
-                        amount_rupees=split.hotel_earning,
-                        notes={"order_id": str(order_id), "type": "hotel_earning"},
-                    )
-                    transfer_id = transfer["items"][0]["id"]
-                    status = "settled"
-                    settled_at = datetime.now(timezone.utc)
-                except Exception as exc:
-                    logger.exception("Hotel transfer failed: %s", exc)
-                    status = "failed"
-
-            db.add(
-                RestaurantEarning(
-                    restaurant_id=restaurant.id,
-                    order_id=order_id,
-                    display_price_total=split.display_total,
-                    actual_price_total=split.actual_price_total,
-                    platform_fee=split.platform_fee,
-                    amount_earned=split.hotel_earning,
-                    transfer_status=status,
-                    razorpay_transfer_id=transfer_id,
-                    settled_at=settled_at,
-                )
-            )
 
         if order.delivery_partner_id:
-            existing_delivery = (
-                db.query(DeliveryEarning)
-                .filter(DeliveryEarning.order_id == order_id)
-                .first()
+            _record_delivery_earning(
+                db,
+                partner_id=order.delivery_partner_id,
+                order_id=order_id,
+                payment_id=order.razorpay_payment_id,
+                amount=split.delivery_earning,
             )
-            if not existing_delivery:
-                delivery_bank = (
-                    db.query(BankAccount)
-                    .filter(
-                        BankAccount.user_id == order.delivery_partner_id,
-                        BankAccount.is_primary == True,
-                    )
-                    .first()
-                )
-                transfer_id = None
-                status = initial_earning_status()
-                settled_at = None
-                if (
-                    delivery_bank
-                    and delivery_bank.razorpay_linked_account_id
-                    and order.razorpay_payment_id
-                    and razorpay_configured()
-                ):
-                    try:
-                        transfer = transfer_to_linked_account(
-                            payment_id=order.razorpay_payment_id,
-                            linked_account_id=delivery_bank.razorpay_linked_account_id,
-                            amount_rupees=split.delivery_earning,
-                            notes={"order_id": str(order_id), "type": "delivery_earning"},
-                        )
-                        transfer_id = transfer["items"][0]["id"]
-                        status = "settled"
-                        settled_at = datetime.now(timezone.utc)
-                    except Exception as exc:
-                        logger.exception("Delivery transfer failed: %s", exc)
-                        status = "failed"
-
-                db.add(
-                    DeliveryEarning(
-                        delivery_partner_id=order.delivery_partner_id,
-                        order_id=order_id,
-                        amount_earned=split.delivery_earning,
-                        transfer_status=status,
-                        razorpay_transfer_id=transfer_id,
-                        settled_at=settled_at,
-                    )
-                )
 
         db.commit()
     finally:
@@ -271,6 +344,8 @@ def create_razorpay_order(
         raise HTTPException(status_code=404, detail="Order not found")
     if order.customer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your order")
+    if order.parent_order_id is not None:
+        raise HTTPException(status_code=400, detail="Pay for the main order, not a single store's part")
     if order.payment_method != "online":
         raise HTTPException(status_code=400, detail="Order is not a prepaid online order")
     if (order.payment_status or "").lower() == "paid":
@@ -354,12 +429,15 @@ def verify_payment(
         raise HTTPException(status_code=403, detail="Not your order")
     if order.razorpay_order_id and order.razorpay_order_id != body.razorpay_order_id:
         raise HTTPException(status_code=400, detail="Order id mismatch")
+    if order.parent_order_id is not None:
+        raise HTTPException(status_code=400, detail="Pay for the main order, not a single store's part")
 
     already_paid = (order.payment_status or "").lower() == "paid"
     order.payment_status = "paid"
     order.payment_method = "online"
     order.razorpay_order_id = body.razorpay_order_id
     order.razorpay_payment_id = body.razorpay_payment_id
+    sync_sub_order_payment(order)
     db.commit()
 
     if not already_paid:
@@ -453,6 +531,7 @@ def _handle_webhook_event(data: dict, background_tasks: BackgroundTasks) -> None
                         order.payment_status = "paid"
                         order.payment_method = "online"
                         order.razorpay_payment_id = payment["id"]
+                        sync_sub_order_payment(order)
                         db.commit()
                         _notify_new_order_sms(db, order)
                         background_tasks.add_task(process_payment_split, order_id)

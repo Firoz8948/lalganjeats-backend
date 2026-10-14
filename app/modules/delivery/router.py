@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.core.security import get_delivery_partner
 from app.modules.orders.models import Order, DeliveryProfile, DeliveryOffer
+from app.modules.orders.multi_store_lifecycle import propagate_rider_status, restaurant_label
 from app.modules.delivery import dispatch
 from app.modules.delivery import webhook as dp_webhook
 from app.modules.delivery.actives import merge_active_order_payloads
@@ -211,6 +212,7 @@ def mark_picked_up(
             "Order not found, not assigned to you, or restaurant has not marked Ready yet",
         )
     order.status = "picked_up"
+    propagate_rider_status(order)
     db.commit()
     dp_webhook.on_picked_up(order, current_user)
     return {
@@ -491,6 +493,7 @@ def complete_delivery(
     order.delivery_otp = None
     order.delivery_otp_expires_at = None
     order.delivery_otp_verified_at = order.delivery_otp_verified_at or datetime.utcnow()
+    propagate_rider_status(order)
     db.commit()
 
     from app.modules.payments.router import process_payment_split
@@ -598,7 +601,7 @@ def get_earnings(
             {
                 "id": o.id,
                 "order_number": o.order_number,
-                "restaurant": o.restaurant.name if o.restaurant else None,
+                "restaurant": restaurant_label(o),
                 "earning": float(
                     o.delivery_partner_earning
                     if o.delivery_partner_earning is not None

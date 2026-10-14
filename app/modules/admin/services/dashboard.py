@@ -41,7 +41,8 @@ def count_active_promos(
 
 
 def delivered_revenue_filters(tenant_id: int | None):
-    filters = [Order.status == "delivered"]
+    # Store sub-orders repeat their parent's goods value; count the parent only.
+    filters = [Order.status == "delivered", Order.parent_order_id.is_(None)]
     if tenant_id:
         filters.append(Order.tenant_id == tenant_id)
     return tuple(filters)
@@ -67,7 +68,10 @@ def latest_order_sequence(db: Session, tenant_id: int | None = None) -> int:
 
 
 def _serialize_live_order(o: Order) -> dict:
-    restaurant = o.restaurant
+    from app.modules.orders.multi_store_lifecycle import pickup_restaurants, restaurant_label
+
+    pickups = pickup_restaurants(o)
+    restaurant = pickups[0] if pickups else None
     partner = o.delivery_partner
     customer = o.customer
     pay = display_payment_mode(o)
@@ -83,7 +87,7 @@ def _serialize_live_order(o: Order) -> dict:
         "payment_verified": pay["payment_verified"],
         "payment_via": pay.get("payment_via"),
         "created_at": o.created_at.isoformat() if o.created_at else None,
-        "restaurant_name": restaurant.name if restaurant else None,
+        "restaurant_name": restaurant_label(o),
         "restaurant_phone": restaurant.phone if restaurant else None,
         "delivery_partner_name": partner.full_name if partner else None,
         "delivery_partner_phone": partner.phone if partner else None,
@@ -127,6 +131,7 @@ def get_dashboard(db: Session, current: User):
         .filter(Order.status.in_(LIVE_ORDER_STATUSES))
         .filter(fulfillment_sql_filter(Order))
         .filter(Order.tenant_id == current.tenant_id)
+        .filter(Order.parent_order_id.is_(None))
     )
     live_orders = live_orders_q.order_by(Order.created_at.desc()).limit(25).all()
 

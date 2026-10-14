@@ -24,9 +24,11 @@ def _status_meta_for(order) -> str:
     public = serialize_public_identity(partner) if partner else None
     bike = (public or {}).get("registered_vehicle_number") if public else None
     bike_name = (public or {}).get("bike_info") if public else None
+    from app.modules.orders.multi_store_lifecycle import restaurant_label
+
     return customer_status_meta(
         order.status,
-        restaurant_name=order.restaurant.name if order.restaurant else None,
+        restaurant_name=restaurant_label(order),
         delivery_partner_name=partner.full_name if partner else None,
         bike_number=bike,
         bike_name=bike_name,
@@ -87,7 +89,10 @@ def get_track_snapshot(
     if not allowed:
         raise HTTPException(403, "Not allowed to view this order location")
 
-    r = order.restaurant
+    from app.modules.orders.multi_store_lifecycle import pickup_restaurants
+
+    pickups = pickup_restaurants(order)
+    r = pickups[0] if pickups else None
     restaurant = _ll(
         getattr(r, "latitude", None) if r else None,
         getattr(r, "longitude", None) if r else None,

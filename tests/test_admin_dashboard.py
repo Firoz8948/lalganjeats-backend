@@ -18,11 +18,12 @@ def test_active_offer_filter_uses_current_time():
 def test_dashboard_revenue_counts_delivered_orders_for_tenant():
     filters = dashboard.delivered_revenue_filters(tenant_id=7)
 
-    assert len(filters) == 2
+    assert len(filters) == 3
     assert filters[0].left.key == "status"
     assert filters[0].right.value == "delivered"
-    assert filters[1].left.key == "tenant_id"
-    assert filters[1].right.value == 7
+    assert filters[1].left.key == "parent_order_id"
+    assert filters[2].left.key == "tenant_id"
+    assert filters[2].right.value == 7
 
 
 def test_live_orders_exclude_delivered_and_cancelled():
