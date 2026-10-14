@@ -174,7 +174,7 @@ def get_restaurant(
 
 @router.get("/{restaurant_key}/menu")
 def get_restaurant_menu(restaurant_key: str, db: Session = Depends(get_db)):
-    """Public menu — available (non-deleted) items for a restaurant (id or slug)."""
+    """Public menu — orderable items for a restaurant (id or slug); unavailable ones are omitted."""
     restaurant = service.resolve_restaurant_key(db, restaurant_key)
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
@@ -194,23 +194,27 @@ def get_restaurant_menu(restaurant_key: str, db: Session = Depends(get_db)):
         .options(joinedload(MenuItem.variants))
         .filter(
             MenuItem.restaurant_id == restaurant_id,
-            MenuItem.is_deleted == False,
+            MenuItem.is_deleted == False,  # noqa: E712
+            MenuItem.is_available == True,  # noqa: E712
         )
         .all()
     )
     items.sort(key=lambda i: (cat_order_map.get(i.category_id, 99999), i.sort_order or 0, i.id))
     result = []
     for item in items:
+        live_variants = [x for x in (item.variants or []) if not x.is_deleted]
+        if live_variants and not any(x.is_available for x in live_variants):
+            continue
         variants = [
             {
                 "id": v.id,
                 "label": v.label,
                 "price": float(v.price),
                 "original_price": float(v.original_price) if v.original_price else None,
-                "is_available": v.is_available,
+                "is_available": True,
             }
             for v in sorted(
-                (x for x in (item.variants or []) if not x.is_deleted),
+                (x for x in live_variants if x.is_available),
                 key=lambda x: (x.sort_order or 0, x.id or 0),
             )
         ]
@@ -219,7 +223,7 @@ def get_restaurant_menu(restaurant_key: str, db: Session = Depends(get_db)):
             and variants[0]["label"].strip().lower() == "regular"
         ):
             variants = []
-        available_prices = [v["price"] for v in variants if v["is_available"]]
+        available_prices = [v["price"] for v in variants]
         list_price = min(available_prices) if available_prices else float(item.price)
         result.append(
             {

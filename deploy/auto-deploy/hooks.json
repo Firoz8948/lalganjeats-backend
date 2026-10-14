@@ -1,0 +1,32 @@
+[
+  {
+    "id": "deploy",
+    "execute-command": "/bin/bash",
+    "command-working-directory": "/opt/lalganjeats",
+    "pass-arguments-to-command": [
+      { "source": "string", "name": "/opt/lalganjeats/deploy/auto-deploy/auto-deploy.sh" },
+      { "source": "payload", "name": "repository.name" },
+      { "source": "payload", "name": "head_commit.message" }
+    ],
+    "response-message": "Deploy queued",
+    "trigger-rule-mismatch-http-response-code": 403,
+    "trigger-rule": {
+      "and": [
+        {
+          "match": {
+            "type": "payload-hmac-sha256",
+            "secret": "{{ getenv "WEBHOOK_SECRET" | js }}",
+            "parameter": { "source": "header", "name": "X-Hub-Signature-256" }
+          }
+        },
+        {
+          "match": {
+            "type": "value",
+            "value": "refs/heads/main",
+            "parameter": { "source": "payload", "name": "ref" }
+          }
+        }
+      ]
+    }
+  }
+]

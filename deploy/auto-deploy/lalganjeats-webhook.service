@@ -1,0 +1,14 @@
+[Unit]
+Description=LalganjEats GitHub push webhook (auto-deploy)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+EnvironmentFile=/etc/lalganjeats/webhook.env
+ExecStart=/usr/bin/webhook -hooks /opt/lalganjeats/deploy/auto-deploy/hooks.json -template -hotreload -ip 127.0.0.1 -port 9000 -verbose
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

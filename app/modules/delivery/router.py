@@ -1,4 +1,5 @@
 # backend/app/modules/delivery/router.py
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -17,6 +18,8 @@ from app.modules.otp import service as otp_service
 router = APIRouter(prefix="/api/v1/delivery", tags=["Delivery Partner"])
 
 IST = timezone(timedelta(hours=5, minutes=30))
+COLLECTION_LINK_TTL_SECONDS = 20 * 60
+logger = logging.getLogger(__name__)
 
 
 def _ist_day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -279,9 +282,7 @@ class CollectionPaymentBody(BaseModel):
 
 # ── Razorpay Payment Link doorstep collection ──────────────
 # The DP taps "Show UPI QR" → we create a Razorpay Payment Link and return
-# its short_url for the QR. Customer pays → webhook / status poll marks paid.
-# encodes into a QR the customer scans.  Their phone opens the URL → we render
-# Razorpay Payment Link → customer scans QR (short_url) → webhook marks
+# its short_url for the QR. Customer pays → webhook / status poll stamps
 # `collection_online_paid_at`. DP app polls /collect-online/status.
 @router.post("/orders/{order_id}/collect-online/initiate")
 def initiate_online_collection(
@@ -314,26 +315,32 @@ def initiate_online_collection(
     if amount > due + 0.01:
         raise HTTPException(400, "online_amount exceeds order total")
 
-    expire_by = int(time.time()) + 15 * 60
+    # Razorpay rejects expire_by < 15 minutes ahead (measured on their clock).
+    expire_by = int(time.time()) + COLLECTION_LINK_TTL_SECONDS
     customer = order.customer
-    link = create_payment_link(
-        amount_rupees=amount,
-        description=f"LalganjEats order {order.order_number}",
-        notes={
-            "flow": "collect_at_door",
-            "order_id": str(order.id),
-            "order_number": order.order_number or "",
-        },
-        customer={
-            "name": ((customer.full_name if customer else None) or "Customer")[:50],
-            "contact": ((customer.phone if customer else None) or "")[:15],
-        } if customer and (customer.phone or customer.full_name) else None,
-        expire_by=expire_by,
-    )
+    try:
+        link = create_payment_link(
+            amount_rupees=amount,
+            description=f"LalganjEats order {order.order_number}",
+            notes={
+                "flow": "collect_at_door",
+                "order_id": str(order.id),
+                "order_number": order.order_number or "",
+            },
+            customer={
+                "name": ((customer.full_name if customer else None) or "Customer")[:50],
+                "contact": ((customer.phone if customer else None) or "")[:15],
+            } if customer and (customer.phone or customer.full_name) else None,
+            expire_by=expire_by,
+        )
+    except Exception:
+        logger.exception("Razorpay payment link creation failed for order %s", order.id)
+        raise HTTPException(502, "Could not create the UPI payment link. Please try again or collect cash.")
     plink_id = str(link.get("id") or "")
     short_url = str(link.get("short_url") or "")
     if not plink_id or not short_url:
-        raise HTTPException(502, "Could not create Razorpay payment link")
+        logger.error("Razorpay payment link for order %s returned no id/short_url: %s", order.id, link)
+        raise HTTPException(502, "Could not create the UPI payment link. Please try again or collect cash.")
 
     order.collection_txnid = plink_id
     order.collection_amount = amount
@@ -341,13 +348,13 @@ def initiate_online_collection(
     order.collection_online_paid_at = None
     db.commit()
 
-    expires_at = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
     return {
         "txnid": plink_id,
         "amount": amount,
         "qr_url": short_url,
         "payment_page_url": short_url,
-        "expires_at": expires_at,
+        "expires_at": datetime.fromtimestamp(expire_by, tz=timezone.utc).isoformat(),
+        "expires_in_seconds": COLLECTION_LINK_TTL_SECONDS,
     }
 
 
@@ -386,7 +393,7 @@ def get_online_collection_status(
                 db.commit()
                 paid = True
         except Exception:
-            pass
+            logger.warning("Payment link status poll failed for order %s (%s)", order.id, txnid, exc_info=True)
 
     return {
         "txnid": txnid,

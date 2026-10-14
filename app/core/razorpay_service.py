@@ -98,8 +98,9 @@ def create_payment_link(
             import logging
 
             logging.getLogger(__name__).warning(
-                "Razorpay payment_link with checkout_config_id=%s failed (%s); retrying without it",
+                "Razorpay payment_link with checkout_config_id=%s failed (%s: %s); retrying without it",
                 cfg,
+                type(exc).__name__,
                 exc,
             )
             payload.pop("options", None)
